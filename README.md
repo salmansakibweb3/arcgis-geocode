@@ -1,4 +1,4 @@
-# Custom Address Geocoding and Coordinate Generation Tool
+# Address Geocoding & Coordinate Generation Tool
 
 This project provides a modular Python solution to:
 - **Authenticate** with ArcGIS Enterprise using OAuth.
@@ -38,8 +38,8 @@ The workflow is interactive and prompts the user for all necessary inputs, inclu
 ## (Optional) Create and activate a virtual environment:
 
 ```bash
-    python -m venv venv
-    source venv/bin/activate   # On Windows: venv\Scripts\activate
+python -m venv venv
+source venv/bin/activate   # On Windows: venv\Scripts\activate
 ```
 
 ## Install dependencies:
@@ -49,71 +49,51 @@ The project automatically installs dependencies when you run main.py. Alternativ
 pip install -r requirements.txt
 ```
 
-# Usage
-Prepare your CSV file:
+## Usage
+1. Prepare your CSV file:
+    - Place your CSV file in the input folder.
+    - Ensure it contains at least two columns:
+    - One column with street addresses (e.g., Address).
+    - One column with city information (e.g., City). 
+    - Note: The City column may sometimes include a ZIP code.
 
-Place your CSV file in the input folder.
+2. Run the project:
 
-Ensure it contains at least two columns:
-
-One column with street addresses (e.g., Address).
-
-One column with city information (e.g., City).
-Note: The City column may sometimes include a ZIP code.
-
-Run the project:
-
-bash
-Copy
+```bash
 python main.py
-Follow the prompts:
+```
 
-Enter your ArcGIS Client ID.
+3. Follow the prompts:
+    - Enter your ArcGIS Client ID.
+    - Log in via the browser when prompted.
+    - Confirm if you want to proceed with geocoding.
+    - Provide the path to your CSV file (for example, ./input/your_file.csv).
+    - Enter the column names for addresses and cities.
+    - Confirm to generate coordinates (XY) from the geocoded addresses.
 
-Log in via the browser when prompted.
+4. Output:
+- The geocoded addresses will be saved to ./output/output_with_addresses.csv.
+- The final CSV file with XY coordinates will be saved to ./output/output_with_coords.csv.
 
-Confirm if you want to proceed with geocoding.
-
-Provide the path to your CSV file (for example, ./input/your_file.csv).
-
-Enter the column names for addresses and cities.
-
-Confirm to generate coordinates (XY) from the geocoded addresses.
-
-Output:
-
-The geocoded addresses will be saved to ./output/output_with_addresses.csv.
-
-The final CSV file with XY coordinates will be saved to ./output/output_with_coords.csv.
-
-Modules Overview
-login.py:
+## Modules Overview
+1. login.py:
 Handles the OAuth login with ArcGIS Enterprise using a local server flow. The browser is automatically used for authentication.
 
-geocode.py:
+2. geocode.py:
 Reads the input CSV, combines the address and city (parsing out ZIP code if available), and geocodes the resulting address. The geocoded address is then saved to a new CSV.
 
-generate_coords.py:
+3. generate_coords.py:
 Reads the CSV produced by geocode.py and uses the geocoded address to generate X (longitude) and Y (latitude) coordinates. These columns are added to the CSV output.
 
-main.py:
+4. main.py:
 Orchestrates the workflow by:
+- Installing dependencies if needed.
+- Logging into ArcGIS Enterprise.
+- Prompting the user for necessary input details.
+- Running the geocoding and coordinate generation steps.
 
-Installing dependencies if needed.
-
-Logging into ArcGIS Enterprise.
-
-Prompting the user for necessary input details.
-
-Running the geocoding and coordinate generation steps.
-
-Contributing
+## Contributing
 Feel free to fork the repository, make changes, and submit pull requests. For any issues or suggestions, please open an issue.
 
-License
+# License
 This project is licensed under the MIT License.
-
-pgsql
-Copy
-
-This README should be ready to add to your repository. Simply copy and paste it into a file named
