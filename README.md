@@ -10,6 +10,14 @@ The workflow is interactive and prompts the user for all necessary inputs, inclu
 
 ## Project Structure
 
+The project is organized into folders and files as shown below. Each folder and file has a specific purpose:
+
+- The `input/` folder is where you place your CSV input files.
+- The `output/` folder contains the generated output files, including geocoded addresses and coordinates.
+- The Python scripts (`login.py`, `geocode.py`, `generate_coords.py`, and `main.py`) handle different parts of the workflow.
+│ └── output_with_coords.csv # CSV output with geocoded addresses and their corresponding XY coordinates (latitude and longitude) to be used for GIS mapping.
+
+```bash
 ├── input/
 │ └── <your_input_file.csv> # Place your CSV input files here.
 ├── output/
@@ -20,7 +28,7 @@ The workflow is interactive and prompts the user for all necessary inputs, inclu
 ├── generate_coords.py # Reads the geocoded CSV and generates XY coordinate columns.
 ├── main.py # Orchestrates the entire workflow.
 └── requirements.txt # List of required Python packages.
-
+```
 
 ## Prerequisites
 
