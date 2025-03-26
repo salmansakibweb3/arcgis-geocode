@@ -2,6 +2,9 @@
 output/
 input/
 
+# Terms of Use files
+termsofuse.html
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
