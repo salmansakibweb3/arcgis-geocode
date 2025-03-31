@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ArcGIS Geocoding App</title>
+  <script>
+    function openOAuthUrl(url) {
+      if (url) {
+        window.open(url, '_blank');
+      }
+    }
+  </script>
+</head>
+<body>
+  <h1>ArcGIS Geocoding App</h1>
+
+  <% if (!loginResult || (loginResult && loginResult.status !== "success")) { %>
+    <!-- Login form shown only when not logged in or if there was an error -->
+    <form action="/login" method="POST">
+      <label for="client_id">Client ID:</label>
+      <input type="text" id="client_id" name="client_id" required value="<%= client_id || '' %>">
+      
+      <% if (awaitingCode) { %>
+        <br><br>
+        <label for="code">Approval Code:</label>
+        <input type="text" id="code" name="code" required>
+        <button type="submit">Submit Code</button>
+      <% } else { %>
+        <button type="submit">Login</button>
+      <% } %>
+    </form>
+  <% } else { %>
+    <p>Login successful. You may now proceed.</p>
+  <% } %>
+
+  <% if (oauthUrl && awaitingCode && (!loginResult || (loginResult && loginResult.status !== "success"))) { %>
+    <script>
+      openOAuthUrl("<%- oauthUrl %>");
+    </script>
+    <p>We've opened the OAuth URL in a new tab. After signing in, paste the code here.</p>
+  <% } %>
+
+  <% if (loginResult) { %>
+    <pre><%= JSON.stringify(loginResult, null, 2) %></pre>
+  <% } %>
+
+  <hr>
+
+  <!-- Geocode CSV -->
+  <h2>Geocode CSV</h2>
+  <form action="/geocode" method="POST" enctype="multipart/form-data">
+    <label for="csv">CSV File:</label>
+    <input type="file" id="csv" name="csv" required>
+    <br>
+    <label for="address_col">Address Column:</label>
+    <input type="text" id="address_col" name="address_col" required>
+    <br>
+    <label for="city_col">City Column:</label>
+    <input type="text" id="city_col" name="city_col" required>
+    <br>
+    <button type="submit">Geocode</button>
+  </form>
+  <% if (geocodeResult) { %>
+    <pre><%= JSON.stringify(geocodeResult, null, 2) %></pre>
+  <% } %>
+
+  <hr>
+
+  <!-- Generate Coordinates -->
+  <h2>Generate Coordinates</h2>
+  <form action="/generate-coords" method="POST" enctype="multipart/form-data">
+    <label for="input_csv">Input CSV (with geocoded addresses):</label>
+    <input type="file" id="input_csv" name="input_csv" required>
+    <button type="submit">Generate Coordinates</button>
+  </form>
+  <% if (coordsResult) { %>
+    <pre><%= JSON.stringify(coordsResult, null, 2) %></pre>
+  <% } %>
+</body>
+</html>
