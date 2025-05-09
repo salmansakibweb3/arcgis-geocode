@@ -1,0 +1,33 @@
+{
+  "id": 2185,
+  "username": "ssakib",
+  "first_name": "Salman",
+  "last_name": "Sakib",
+  "agencies": [
+    {
+      "id": 14,
+      "code": "CNSL",
+      "name": "Consolidated MAD",
+      "region": {
+        "id": 222,
+        "acronym": "Fresno",
+        "name": "Fresno",
+        "type": "county"
+      },
+      "state": {
+        "id": 6,
+        "acronym": "CA",
+        "name": "California"
+      },
+      "aggregate": false,
+      "user_type": {
+        "id": 2,
+        "name": "User"
+      },
+      "primary": true
+    }
+  ],
+  "add_date": "2025-03-18T00:21:52.320Z",
+  "updated": "2025-04-28T17:32:30.796Z",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MjE4NSwiaWF0IjoxNzQ2MjAyODk2LCJleHAiOjE3NDYyMDY0OTZ9.nw5pOdk_NGMOgvFi8jsQslqQFaCOtLcb5ChnhxXl3aQ"
+}
