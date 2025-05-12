@@ -1,0 +1,13 @@
+<h2>Prepare Data</h2>
+<form action="/prepare-data" method="POST" enctype="multipart/form-data">
+  <label for="csv_prepare">CSV File:</label>
+  <input type="file" id="csv_prepare" name="csv_prepare" required>
+  <button type="submit">Prepare Data</button>
+</form>
+
+<% if (prepareResult) { %>
+  <div class="error">
+    <strong>Error preparing data:</strong>
+    <pre><%= JSON.stringify(prepareResult, null, 2) %></pre>
+  </div>
+<% } %>

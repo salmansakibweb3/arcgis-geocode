@@ -1,0 +1,29 @@
+<% if (!loginResult || (loginResult && loginResult.status !== "success")) { %>
+    <form action="/login" method="POST">
+      <label for="client_id">Client ID:</label>
+      <input type="text" id="client_id" name="client_id" required value="<%= client_id || '' %>">
+      
+      <% if (awaitingCode) { %>
+        <br><br>
+        <label for="code">Approval Code:</label>
+        <input type="text" id="code" name="code" required>
+        <button type="submit">Submit Code</button>
+      <% } else { %>
+        <button type="submit">Login</button>
+      <% } %>
+    </form>
+  <% } else { %>
+    <p>Login successful. You may now proceed.</p>
+  <% } %>
+  
+  <% if (oauthUrl && awaitingCode && (!loginResult || (loginResult && loginResult.status !== "success"))) { %>
+    <script>
+      window.open("<%- oauthUrl %>", '_blank');
+    </script>
+    <p>We've opened the OAuth URL in a new tab. After signing in, paste the code here.</p>
+  <% } %>
+  
+  <% if (loginResult) { %>
+    <pre><%= JSON.stringify(loginResult, null, 2) %></pre>
+  <% } %>
+  

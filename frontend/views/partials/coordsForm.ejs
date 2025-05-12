@@ -1,0 +1,10 @@
+<h2>Generate Coordinates</h2>
+<form action="/generate-coords" method="POST" enctype="multipart/form-data">
+  <label for="input_csv">Input CSV (with geocoded addresses):</label>
+  <input type="file" id="input_csv" name="input_csv" required>
+  <button type="submit">Generate Coordinates</button>
+</form>
+
+<% if (coordsResult) { %>
+  <pre><%= JSON.stringify(coordsResult, null, 2) %></pre>
+<% } %>

@@ -1,0 +1,11 @@
+<!-- views/partials/updateLayerForm.ejs -->
+<h2>Update Dashboard Layer</h2>
+<form action="/update-layer" method="POST" enctype="multipart/form-data">
+  <label for="csv_update">CSV File:</label>
+  <input type="file" id="csv_update" name="csv_update" required>
+  <button type="submit">Upload & Update</button>
+</form>
+
+<% if (typeof updateResult !== 'undefined' && updateResult) { %>
+  <pre><%= JSON.stringify(updateResult, null, 2) %></pre>
+<% } %>
