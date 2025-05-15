@@ -15,7 +15,7 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.static(path.join(__dirname, 'public')));
 
-const PYTHON_BACKEND = 'http://localhost:5000';
+const PYTHON_BACKEND = process.env.PYTHON_BACKEND || 'http://localhost:5000';
 
 // Render main page
 app.get('/', (req, res) => {
