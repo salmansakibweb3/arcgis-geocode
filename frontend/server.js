@@ -222,6 +222,7 @@ app.post('/update-layer', upload.single('csv_update'), async (req, res) => {
       client_id:     '',
       geocodeResult: null,
       coordsResult:  null,
+      prepareResult: null,
       updateResult:  errMsg
     });
   }
