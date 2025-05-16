@@ -1,3 +1,4 @@
+from flask_cors import CORS
 from flask import Flask, request, jsonify, send_file
 import os
 import tempfile
@@ -11,6 +12,7 @@ from prepare_data import prepare_data
 from update_layer import process_update_layer
 
 app = Flask(__name__)
+CORS(app)
 # Global GIS object after successful OAuth login
 gis = None
 
@@ -33,7 +35,13 @@ def complete_login():
         return jsonify({"status": "failure", "message": "client_id or code missing"}), 400
     gis = arcgis_login(client_id, code)
     if gis:
-        return jsonify({"status": "success", "message": f"Logged in as {gis.users.me.username}"})
+        user = gis.users.me
+        return jsonify({
+            "status": "success",
+            "username": user.username,
+            "full_name": user.fullName,
+            "message": f"Logged in as {user.fullName} ({user.username})"
+        })
     else:
         return jsonify({"status": "failure", "message": "Login failed"}), 400
 
