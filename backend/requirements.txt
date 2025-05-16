@@ -4,3 +4,4 @@ numpy==1.24.4
 Flask
 urllib3<2.0.0
 gunicorn
+flask-cors
