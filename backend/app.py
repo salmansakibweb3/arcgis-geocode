@@ -172,7 +172,8 @@ def update_layer_endpoint():
         result = process_update_layer(
             gis,
             request.files['csv_update'],
-            layer_item_id="c90b4cde46fd40eab2d8f95b264183bd"
+            layer_item_id="c90b4cde46fd40eab2d8f95b264183bd",
+            csv_item_id="aba88057a34c4d448df443ff21fa7121"
         )
         return jsonify({"status": "success", "result": result})
     except Exception as e:
