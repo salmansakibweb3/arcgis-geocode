@@ -6,7 +6,7 @@ import PrepareDataCard from "./components/PrepareDataCard";
 import UpdateLayerCard from "./components/UpdateLayerCard";
 import WorkflowOptionsCard from "./components/WorkflowOptionsCard";
 
-type Workflow = "home" | "geocode" | "update";
+type Workflow = "home" | "geocode" | "update-surveillance" | "update-disease";
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -57,10 +57,17 @@ function App() {
         </>
       )}
 
-      {workflow === "update" && (
+      {workflow === "update-surveillance" && (
         <>
           <PrepareDataCard />
-          <UpdateLayerCard />
+          <UpdateLayerCard layerType="surveillance" />
+        </>
+      )}
+
+      {workflow === "update-disease" && (
+        <>
+          <PrepareDataCard />
+          <UpdateLayerCard layerType="disease" />
         </>
       )}
     </main>

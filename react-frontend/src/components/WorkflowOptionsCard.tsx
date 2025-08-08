@@ -1,6 +1,6 @@
 interface Props {
     username: string;
-    onSelectWorkflow: (workflow: "geocode" | "update") => void;
+    onSelectWorkflow: (workflow: "geocode" | "update-surveillance" | "update-disease") => void;
 }
 
 export default function WorkflowOptionsCard({ username, onSelectWorkflow }: Props) {
@@ -20,10 +20,17 @@ export default function WorkflowOptionsCard({ username, onSelectWorkflow }: Prop
                 </button>
 
                 <button
-                    onClick={() => onSelectWorkflow("update")}
+                    onClick={() => onSelectWorkflow("update-surveillance")}
                     className="w-full bg-orange-600 text-white px-6 py-3 rounded-lg text-lg hover:bg-orange-700"
                 >
-                    🗂️ Update Dashboard Layer
+                    🦟 Update Surveillance Dashboard
+                </button>
+
+                <button
+                    onClick={() => onSelectWorkflow("update-disease")}
+                    className="w-full bg-red-600 text-white px-6 py-3 rounded-lg text-lg hover:bg-red-700"
+                >
+                    🧬 Update Disease Monitoring Dashboard
                 </button>
             </div>
         </div>

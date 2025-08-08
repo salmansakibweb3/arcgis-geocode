@@ -176,13 +176,36 @@ def update_layer_endpoint():
     if 'csv_update' not in request.files:
         return jsonify({"status": "failure", "message": "No CSV uploaded"}), 400
 
+    # Get layer type from form data
+    layer_type = request.form.get('layer_type', 'surveillance')  # default to surveillance
+    
+    # Define layer configurations
+    LAYER_CONFIGS = {
+        'surveillance': {
+            'layer_item_id': "c90b4cde46fd40eab2d8f95b264183bd",
+            'csv_item_id': "aba88057a34c4d448df443ff21fa7121",
+            'name': "Collection 2025"
+        },
+        'disease': {
+            'layer_item_id': "d2a9cfa0aa4e4b0e8a2c30da319957fe",  # Replace with actual disease layer ID
+            'csv_item_id': "d26c1a0e2b5c4a0883d3d4aaa412dd07",      # Replace with actual disease CSV ID
+            'name': "Pools 2025"  # Update this with your actual disease layer name
+        }
+    }
+    
+    if layer_type not in LAYER_CONFIGS:
+        return jsonify({"status": "failure", "message": f"Invalid layer_type: {layer_type}"}), 400
+    
+    config = LAYER_CONFIGS[layer_type]
+
     try:
         result = process_update_layer(
             gis,
             request.files['csv_update'],
-            layer_item_id="c90b4cde46fd40eab2d8f95b264183bd",
-            csv_item_id="aba88057a34c4d448df443ff21fa7121"
+            layer_item_id=config['layer_item_id'],
+            csv_item_id=config['csv_item_id']
         )
+        result['layer_name'] = config['name']
         return jsonify({"status": "success", "result": result})
     except Exception as e:
         return jsonify({"status": "failure", "message": str(e)}), 500
