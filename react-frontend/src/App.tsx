@@ -66,7 +66,6 @@ function App() {
 
       {workflow === "update-disease" && (
         <>
-          <PrepareDataCard />
           <UpdateLayerCard layerType="disease" />
         </>
       )}
