@@ -29,7 +29,7 @@ function App() {
       <header className="flex justify-between items-center mb-6 max-w-4xl mx-auto">
         <h1 className="text-2xl font-bold text-blue-800">
           🛰️ CMAD Pioneer (v.0.1)
-          <h2>Developed by Salman Sakib</h2>
+            <h2 className="text-sm font-normal text-gray-500 mt-1">Developed by Salman Sakib</h2>
         </h1>
         {isLoggedIn && (
           <button
