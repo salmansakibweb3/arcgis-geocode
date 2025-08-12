@@ -11,8 +11,11 @@ export default function LoginCard({
     const [approvalCode, setApprovalCode] = useState("");
     const [awaitingCode, setAwaitingCode] = useState(false);
     const [loginResult, setLoginResult] = useState<any>(null);
+    const [isStartingLogin, setIsStartingLogin] = useState(false);
+    const [isCompletingLogin, setIsCompletingLogin] = useState(false);
 
     const startLogin = async () => {
+        setIsStartingLogin(true);
         try {
             const res = await api.post("/start-login", { client_id: CLIENT_ID });
             const url = res.data.oauth_url;
@@ -20,10 +23,13 @@ export default function LoginCard({
             setAwaitingCode(true);
         } catch (err: any) {
             setLoginResult({ status: "failure", message: err.message });
+        } finally {
+            setIsStartingLogin(false);
         }
     };
 
     const completeLogin = async () => {
+        setIsCompletingLogin(true);
         try {
             const res = await api.post("/complete-login", {
                 client_id: CLIENT_ID,
@@ -31,26 +37,40 @@ export default function LoginCard({
             });
             setLoginResult(res.data);
             if (res.data.status === "success") {
-                const message = res.data.message || "";
-                const match = message.match(/Logged in as (\w+)/i);
                 const fullName = res.data.full_name || "User";
                 onLoginSuccess(fullName);
             }
         } catch (err: any) {
             setLoginResult({ status: "failure", message: err.message });
+        } finally {
+            setIsCompletingLogin(false);
         }
     };
 
     return (
-        <div className="bg-white shadow-xl rounded-xl p-6 max-w-lg mx-auto mt-8">
+        <div className="bg-white shadow-xl rounded-xl p-6 max-w-lg mx-auto mt-8 relative">
+            {/* Loading Overlay */}
+            {(isStartingLogin || isCompletingLogin) && (
+                <div className="absolute inset-0 bg-white bg-opacity-90 flex items-center justify-center rounded-xl z-10">
+                    <div className="text-center">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                        <p className="text-lg font-medium text-gray-700">
+                            {isStartingLogin ? "Initializing Login..." : "Completing Login..."}
+                        </p>
+                        <p className="text-sm text-gray-500">Please wait</p>
+                    </div>
+                </div>
+            )}
+
             <h2 className="text-lg font-semibold mb-4 text-gray-800">🔐 ArcGIS Login</h2>
 
             {!awaitingCode ? (
                 <button
                     onClick={startLogin}
-                    className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                    disabled={isStartingLogin}
+                    className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed transition-colors"
                 >
-                    Start Login
+                    {isStartingLogin ? "Starting..." : "Start Login"}
                 </button>
             ) : (
                 <>
@@ -60,12 +80,14 @@ export default function LoginCard({
                         className="w-full px-3 py-2 border rounded mb-4"
                         value={approvalCode}
                         onChange={(e) => setApprovalCode(e.target.value)}
+                        disabled={isCompletingLogin}
                     />
                     <button
                         onClick={completeLogin}
-                        className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                        disabled={isCompletingLogin}
+                        className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:bg-green-400 disabled:cursor-not-allowed transition-colors"
                     >
-                        Submit Code
+                        {isCompletingLogin ? "Submitting..." : "Submit Code"}
                     </button>
                 </>
             )}

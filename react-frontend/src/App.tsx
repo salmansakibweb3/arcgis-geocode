@@ -5,8 +5,9 @@ import CoordsCard from "./components/CoordsCard";
 import PrepareDataCard from "./components/PrepareDataCard";
 import UpdateLayerCard from "./components/UpdateLayerCard";
 import WorkflowOptionsCard from "./components/WorkflowOptionsCard";
+import AdultControlCard from "./components/AdultControlCard";
 
-type Workflow = "home" | "geocode" | "update-surveillance" | "update-disease";
+type Workflow = "home" | "geocode" | "update-surveillance" | "update-disease" | "adult-control";
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -28,7 +29,7 @@ function App() {
     <main className="bg-gray-100 min-h-screen p-6">
       <header className="flex justify-between items-center mb-6 max-w-4xl mx-auto">
         <h1 className="text-2xl font-bold text-blue-800">
-          🛰️ CMAD Pioneer (v.0.1)
+          🛰️ CMAD Pioneer (v.0.0.1)
             <h2 className="text-sm font-normal text-gray-500 mt-1">Developed by Salman Sakib</h2>
         </h1>
         {isLoggedIn && (
@@ -67,6 +68,12 @@ function App() {
       {workflow === "update-disease" && (
         <>
           <UpdateLayerCard layerType="disease" />
+        </>
+      )}
+
+      {workflow === "adult-control" && (
+        <>
+          <AdultControlCard />
         </>
       )}
     </main>
