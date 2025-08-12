@@ -28,7 +28,7 @@ function App() {
     <main className="bg-gray-100 min-h-screen p-6">
       <header className="flex justify-between items-center mb-6 max-w-4xl mx-auto">
         <h1 className="text-2xl font-bold text-blue-800">
-          🛰️ Pioneer (v.0.0)
+          🛰️ CMAD Pioneer (v.0.1)
           <h2>Developed by Salman Sakib</h2>
         </h1>
         {isLoggedIn && (
