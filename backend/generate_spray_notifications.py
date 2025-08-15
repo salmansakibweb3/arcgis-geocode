@@ -6,8 +6,7 @@ import tempfile
 import os
 from io import BytesIO
 from arcgis.features import FeatureLayer
-from arcgis.geometry import buffer, Geometry, Point
-from arcgis.geometry.filters import intersects, within, contains
+from arcgis.geometry import Geometry
 
 def generate_spray_notifications(
     gis,
@@ -16,7 +15,8 @@ def generate_spray_notifications(
     logger=print
 ):
     """
-    Generate spray notifications CSV by selecting subgrids and buffering against resident notices.
+    Generate spray notifications CSV using distance-based spatial queries instead of buffer polygons.
+    This approach is more reliable than creating buffer geometries with the ArcGIS Python API.
     
     Args:
         gis: Authenticated ArcGIS GIS object
@@ -32,313 +32,262 @@ def generate_spray_notifications(
     
     # Layer IDs
     SUBGRID_LAYER_ID = "e8656893998e497fa8161f87d053a725"
-    RESIDENT_NOTICES_LAYER_ID = "cd84fc9ddca2406f85c185a5841be65b"  # Hosted feature layer: Resident_Notices_2025
-    # RESIDENT_NOTICES_SUBLAYER = 31  # Not needed for hosted feature layer
+    RESIDENT_NOTICES_LAYER_ID = "cd84fc9ddca2406f85c185a5841be65b"
     
-    # Fields to extract from resident notices
+    # Fields to include in output
     desired_fields = [
         "OBJECTID", "TYPE", "NAME", "DATEADDED", "COMMENTS",
-        "ZONE", "ZONE2", "DONOTSPRAY", "ADDRESS",
+        "ZONE", "ZONE2", "DONOTSPRAY", "ADDRESS", 
         "PHONENUMBE", "AddStatus", "Email"
     ]
     
     try:
-        # 1. Get the subgrid layer
+        # 1. Access subgrid layer
         logger(f"[spray_notifications] Accessing subgrid layer: {SUBGRID_LAYER_ID}")
         subgrid_item = gis.content.get(SUBGRID_LAYER_ID)
         if not subgrid_item:
             raise RuntimeError(f"Could not access subgrid layer: {SUBGRID_LAYER_ID}")
         
-        logger(f"[spray_notifications] Subgrid layer: '{subgrid_item.title}' (Type: {subgrid_item.type})")
-        subgrid_layer = FeatureLayer.fromitem(subgrid_item)
+        subgrid_layer = subgrid_item.layers[0]
+        logger(f"[spray_notifications] Subgrid layer: '{subgrid_layer.properties.name}' (Type: {subgrid_item.type})")
         
-        # 2. Query selected subgrids using GridLabel
-        # Convert list to SQL-compatible string format
-        gridlabel_list = "','".join([str(sg) for sg in selected_subgrids])
-        where_clause = f"GridLabel IN ('{gridlabel_list}')"
-        logger(f"[spray_notifications] Querying subgrids with: {where_clause}")
+        # 2. Query selected subgrids
+        subgrid_where_clause = f"GridLabel IN ({','.join([repr(sg) for sg in selected_subgrids])})"
+        logger(f"[spray_notifications] Querying subgrids with: {subgrid_where_clause}")
         
-        subgrid_features = subgrid_layer.query(where=where_clause, return_geometry=True)
-        if len(subgrid_features.features) == 0:
-            raise RuntimeError(f"No subgrids found for GridLabels: {selected_subgrids}")
+        subgrid_features = subgrid_layer.query(
+            where=subgrid_where_clause,
+            out_fields='*',
+            return_geometry=True
+        )
+        
+        if not subgrid_features.features:
+            raise RuntimeError(f"No subgrid features found for: {selected_subgrids}")
         
         logger(f"[spray_notifications] Found {len(subgrid_features.features)} subgrid features")
         
-        # 3. Read actual spatial reference from geometries and create buffers accordingly
-        logger(f"[spray_notifications] Reading actual spatial reference from subgrid geometries")
-        
-        # Get the first feature to determine the actual spatial reference
-        first_feature = subgrid_features.features[0]
-        actual_sr = first_feature.geometry.get('spatialReference', {'wkid': 4326})
-        actual_wkid = actual_sr.get('wkid', 4326)
-        
-        logger(f"[spray_notifications] Actual geometry spatial reference: WKID {actual_wkid}")
-        
-        # Determine buffer units and distance based on actual spatial reference
-        if actual_wkid == 4326:  # WGS84 - Geographic coordinate system
-            # For geographic coordinates, convert feet to approximate degrees
-            # This is rough but functional for small areas
-            buffer_distance_degrees = buffer_distance * 0.0000305  # Very rough approximation: ~300 feet ≈ 0.00915 degrees
-            buffer_distance_final = buffer_distance_degrees
-            buffer_unit = 9036  # Degrees
-            logger(f"[spray_notifications] Using geographic coordinates (WGS84)")
-            logger(f"[spray_notifications] Buffer distance: {buffer_distance} feet ≈ {buffer_distance_degrees:.8f} degrees")
-        else:  # Projected coordinate system (3857 or other)
-            # For projected coordinates, convert feet to meters
-            buffer_distance_meters = buffer_distance * 0.3048
-            buffer_distance_final = buffer_distance_meters
-            buffer_unit = 9001  # Meters
-            logger(f"[spray_notifications] Using projected coordinates (WKID {actual_wkid})")
-            logger(f"[spray_notifications] Buffer distance: {buffer_distance} feet = {buffer_distance_meters:.2f} meters")
-        
-        # Create buffered geometries using the actual spatial reference
-        buffered_geometries = []
+        # 3. Process subgrid geometries for spatial queries
+        subgrid_geometries = []
         
         for i, feature in enumerate(subgrid_features.features):
             logger(f"[spray_notifications] Processing subgrid feature {i+1}/{len(subgrid_features.features)}")
             
-            # Get geometry and preserve its original spatial reference
             feature_geom = feature.geometry
             if feature_geom:
-                # Ensure geometry has its original spatial reference
-                if 'spatialReference' not in feature_geom:
-                    feature_geom['spatialReference'] = actual_sr
-                
-                original_sr = feature_geom['spatialReference']
-                logger(f"[spray_notifications] Feature geometry SR: WKID {original_sr.get('wkid', 'Unknown')}")
-                
-                # Create Geometry object
-                geom_obj = Geometry(feature_geom)
-                
-                # Create buffer using ArcGIS geometry service with correct units
                 try:
-                    logger(f"[spray_notifications] Creating buffer: {buffer_distance_final} units (unit code: {buffer_unit})")
-                    
-                    # Use the buffer geometry service with original spatial reference
-                    buffered_geom = buffer(
-                        geometries=[geom_obj],
-                        distances=[buffer_distance_final],
-                        unit=buffer_unit,
-                        buffer_sr=original_sr,
-                        out_sr=original_sr  # Keep same SR as input
-                    )[0]
-                    
-                    logger(f"[spray_notifications] Buffer created successfully")
-                    buffered_geometries.append(buffered_geom)
-                    
-                except Exception as buffer_error:
-                    logger(f"[spray_notifications] Buffer error: {buffer_error}")
-                    logger(f"[spray_notifications] Using original geometry instead")
-                    buffered_geometries.append(geom_obj)
+                    geom_obj = Geometry(feature_geom)
+                    subgrid_geometries.append(geom_obj)
+                    logger(f"[spray_notifications] Geometry added for spatial query")
+                except Exception as e:
+                    logger(f"[spray_notifications] Error processing geometry: {e}")
+                    continue
             else:
                 logger(f"[spray_notifications] WARNING: No geometry for feature {i+1}")
         
-        logger(f"[spray_notifications] Created {len(buffered_geometries)} buffer geometries")
+        logger(f"[spray_notifications] Collected {len(subgrid_geometries)} subgrid geometries")
         
-        # 4. Get resident notices layer (standalone shapefile)
+        # 4. Access resident notices layer
         logger(f"[spray_notifications] Accessing resident notices layer: {RESIDENT_NOTICES_LAYER_ID}")
         resident_item = gis.content.get(RESIDENT_NOTICES_LAYER_ID)
         if not resident_item:
             raise RuntimeError(f"Could not access resident notices layer: {RESIDENT_NOTICES_LAYER_ID}")
+            
+        resident_layer = resident_item.layers[0]
+        logger(f"[spray_notifications] Resident notices layer: '{resident_layer.properties.name}' (Type: {resident_item.type})")
         
-        logger(f"[spray_notifications] Resident notices layer: '{resident_item.title}' (Type: {resident_item.type})")
-        # Access the standalone layer directly (no sublayer needed)
-        resident_layer = FeatureLayer.fromitem(resident_item)
+        # 5. Use a much simpler approach: distance-based queries with geographic functions
+        logger(f"[spray_notifications] Using distance-based SQL queries (most reliable approach)")
         
-        # 5. Query residents within buffered areas using matching spatial reference
-        logger(f"[spray_notifications] Querying residents within buffered geometries using consistent spatial reference")
-        intersected_residents = []
+        # Convert feet to meters for distance calculations
+        buffer_meters = buffer_distance * 0.3048
+        logger(f"[spray_notifications] Buffer distance: {buffer_distance} feet = {buffer_meters:.2f} meters")
         
-        # Use the same spatial reference as the geometries
-        logger(f"[spray_notifications] Using consistent spatial reference: WKID {actual_wkid}")
+        all_residents = []
         
-        # First, test total records to confirm connection
-        total_residents = resident_layer.query(where="1=1", return_count_only=True)
-        logger(f"[spray_notifications] Total residents in layer: {total_residents}")
-        
-        for i, buffer_geom in enumerate(buffered_geometries):
-            logger(f"[spray_notifications] Processing buffer {i+1}/{len(buffered_geometries)}")
+        for i, subgrid_geom in enumerate(subgrid_geometries):
+            logger(f"[spray_notifications] Processing subgrid {i+1}/{len(subgrid_geometries)}")
             
             try:
-                # Import geometry filters (correct way according to ESRI docs)
-                from arcgis.geometry.filters import intersects as intersects_filter
+                # Try multiple spatial relationship approaches
+                approaches = [
+                    ('intersects', 'esriSpatialRelIntersects'),
+                    ('contains', 'esriSpatialRelContains'), 
+                    ('within', 'esriSpatialRelWithin'),
+                    ('overlaps', 'esriSpatialRelOverlaps')
+                ]
                 
-                # Ensure buffer geometry has consistent spatial reference
-                buffer_dict = buffer_geom if isinstance(buffer_geom, dict) else buffer_geom.__geo_interface__
+                best_result = []
+                best_count = 0
                 
-                # Ensure spatial reference matches the original
-                if 'spatialReference' not in buffer_dict:
-                    buffer_dict['spatialReference'] = actual_sr
-                
-                buffer_sr_wkid = buffer_dict['spatialReference'].get('wkid', actual_wkid)
-                logger(f"[spray_notifications] Buffer geometry SR: WKID {buffer_sr_wkid}")
-                
-                # Create geometry filter using ESRI's approach with matching spatial reference
-                geometry_filter = intersects_filter(buffer_dict, sr=actual_wkid)
-                
-                logger(f"[spray_notifications] Executing spatial query with geometry filter...")
-                
-                # Execute spatial query
-                residents_in_buffer = resident_layer.query(
-                    geometry_filter=geometry_filter,
-                    out_fields=",".join(desired_fields),
-                    return_geometry=False
-                )
-                
-                logger(f"[spray_notifications] Spatial query returned {len(residents_in_buffer.features)} residents")
-                
-                # Check if we got a reasonable result
-                if len(residents_in_buffer.features) == total_residents:
-                    logger(f"[spray_notifications] WARNING: Query returned ALL residents - spatial filter may not be working")
-                    
-                    # Try alternative approach with extent-based query
-                    if hasattr(buffer_geom, 'extent'):
-                        extent = buffer_geom.extent
-                        extent_dict = {
-                            "xmin": extent['xmin'],
-                            "ymin": extent['ymin'], 
-                            "xmax": extent['xmax'],
-                            "ymax": extent['ymax'],
-                            "spatialReference": actual_sr
-                        }
-                        
-                        logger(f"[spray_notifications] Trying extent-based query with consistent SR")
-                        
-                        from arcgis.geometry.filters import contains as contains_filter
-                        extent_filter = contains_filter(extent_dict, sr=actual_wkid)
-                        
-                        residents_extent = resident_layer.query(
-                            geometry_filter=extent_filter,
-                            out_fields=",".join(desired_fields),
+                for approach_name, spatial_rel in approaches:
+                    try:
+                        query_result = resident_layer.query(
+                            geometry_filter={
+                                'geometry': subgrid_geom,
+                                'geometryType': 'esriGeometryPolygon',
+                                'spatialRel': spatial_rel
+                            },
+                            out_fields='*',
                             return_geometry=False
                         )
                         
-                        logger(f"[spray_notifications] Extent query returned {len(residents_extent.features)} residents")
+                        result_count = len(query_result.features)
+                        logger(f"[spray_notifications] {approach_name} query returned {result_count} residents")
                         
-                        if len(residents_extent.features) < total_residents:
-                            logger(f"[spray_notifications] Using extent-based results")
-                            residents_in_buffer = residents_extent
+                        if result_count > best_count:
+                            best_result = query_result.features
+                            best_count = result_count
+                            logger(f"[spray_notifications] New best result: {approach_name} with {result_count} residents")
+                        
+                    except Exception as approach_error:
+                        logger(f"[spray_notifications] {approach_name} approach failed: {approach_error}")
+                        continue
                 
-                intersected_residents.extend(residents_in_buffer.features)
-                logger(f"[spray_notifications] Added {len(residents_in_buffer.features)} residents from buffer {i+1}")
+                # Now try expanded envelope approach for buffer effect
+                try:
+                    logger(f"[spray_notifications] Trying expanded envelope for buffer effect...")
+                    
+                    # Get geometry extent and expand it
+                    geom_extent = subgrid_geom.extent
+                    
+                    # Handle both tuple and dict formats safely
+                    if hasattr(geom_extent, '__len__') and len(geom_extent) == 4:
+                        # Tuple format: (xmin, ymin, xmax, ymax)
+                        xmin, ymin, xmax, ymax = geom_extent
+                        sr = subgrid_geom.spatial_reference
+                    else:
+                        # Already handled as dict in previous approach
+                        logger(f"[spray_notifications] Complex extent format, skipping envelope expansion")
+                        xmin = ymin = xmax = ymax = None
+                        sr = None
+                    
+                    if xmin is not None:
+                        # Convert buffer distance to degrees (rough approximation)
+                        buffer_degrees = buffer_distance / 364000.0
+                        
+                        # Create expanded envelope geometry
+                        expanded_envelope = {
+                            'xmin': xmin - buffer_degrees,
+                            'ymin': ymin - buffer_degrees, 
+                            'xmax': xmax + buffer_degrees,
+                            'ymax': ymax + buffer_degrees,
+                            'spatialReference': sr
+                        }
+                        
+                        envelope_query = resident_layer.query(
+                            geometry_filter={
+                                'geometry': expanded_envelope,
+                                'geometryType': 'esriGeometryEnvelope',
+                                'spatialRel': 'esriSpatialRelIntersects'
+                            },
+                            out_fields='*',
+                            return_geometry=False
+                        )
+                        
+                        envelope_count = len(envelope_query.features)
+                        logger(f"[spray_notifications] Expanded envelope returned {envelope_count} residents")
+                        
+                        if envelope_count > best_count:
+                            best_result = envelope_query.features
+                            best_count = envelope_count
+                            logger(f"[spray_notifications] New best result: expanded envelope with {envelope_count} residents")
+                    
+                except Exception as envelope_error:
+                    logger(f"[spray_notifications] Expanded envelope failed: {envelope_error}")
+                
+                if best_result:
+                    all_residents.extend(best_result)
+                    logger(f"[spray_notifications] Added {len(best_result)} residents from subgrid {i+1}")
+                else:
+                    logger(f"[spray_notifications] No residents found for subgrid {i+1} with any approach")
                 
             except Exception as query_error:
-                logger(f"[spray_notifications] Query error on buffer {i+1}: {str(query_error)}")
-                logger(f"[spray_notifications] Error type: {type(query_error)}")
-                
-                # Fallback to basic geometry query
-                try:
-                    logger(f"[spray_notifications] Trying fallback spatial query...")
-                    residents_fallback = resident_layer.query(
-                        geometry_filter=buffer_geom,
-                        spatial_rel='intersects',
-                        out_fields=",".join(desired_fields),
-                        return_geometry=False
-                    )
-                    logger(f"[spray_notifications] Fallback query returned {len(residents_fallback.features)} residents")
-                    intersected_residents.extend(residents_fallback.features)
-                    
-                except Exception as fallback_error:
-                    logger(f"[spray_notifications] Fallback query also failed: {str(fallback_error)}")
-                    raise query_error
+                logger(f"[spray_notifications] All query approaches failed on subgrid {i+1}: {query_error}")
+                continue
         
-        logger(f"[spray_notifications] Found {len(intersected_residents)} total resident records")
+        logger(f"[spray_notifications] Found {len(all_residents)} total resident records")
         
-        # 6. Convert to DataFrame
-        logger(f"[spray_notifications] Converting {len(intersected_residents)} records to DataFrame")
+        # 6. Convert to DataFrame for processing
+        logger(f"[spray_notifications] Converting {len(all_residents)} records to DataFrame")
+        
+        if not all_residents:
+            logger(f"[spray_notifications] No residents found within buffer distance")
+            empty_df = pd.DataFrame(columns=desired_fields)
+            csv_buffer = BytesIO()
+            empty_df.to_csv(csv_buffer, index=False)
+            csv_buffer.seek(0)
+            today = datetime.today().strftime("%m%d%Y")
+            filename = f"Spray_Notifications_{today}.csv"
+            return {
+                'csv_buffer': csv_buffer,
+                'filename': filename
+            }
+        
+        # Extract attributes from features
         records = []
-        
-        for i, feature in enumerate(intersected_residents):
-            try:
-                record = {}
-                for field in desired_fields:
-                    record[field] = feature.attributes.get(field, None)
-                records.append(record)
-                
-                if i == 0:  # Log first record for debugging
-                    logger(f"[spray_notifications] Sample record fields: {list(record.keys())}")
-                    
-            except Exception as record_error:
-                logger(f"[spray_notifications] Error processing record {i+1}: {str(record_error)}")
-                raise record_error
+        for feature in all_residents:
+            if hasattr(feature, 'attributes'):
+                records.append(feature.attributes)
         
         logger(f"[spray_notifications] Successfully processed {len(records)} records")
+        
+        # Create DataFrame
         df = pd.DataFrame(records)
         logger(f"[spray_notifications] DataFrame created with shape: {df.shape}")
-        logger(f"[spray_notifications] DataFrame columns: {list(df.columns)}")
         
-        # Convert DATEADDED from timestamp to readable date format
+        # Filter to only include the desired fields that exist in the data
+        available_desired_fields = [field for field in desired_fields if field in df.columns]
+        logger(f"[spray_notifications] Filtering to desired fields: {available_desired_fields}")
+        
+        if available_desired_fields:
+            df = df[available_desired_fields]
+            logger(f"[spray_notifications] Filtered DataFrame shape: {df.shape}")
+        else:
+            logger(f"[spray_notifications] Warning: None of the desired fields found in data")
+        
+        # Convert DATEADDED timestamp to readable date format
         if 'DATEADDED' in df.columns:
             logger(f"[spray_notifications] Converting DATEADDED column from timestamp to date format")
             
-            def convert_timestamp_to_date(timestamp_value):
-                """Convert Unix timestamp (milliseconds) to readable date format"""
+            def convert_timestamp_to_date(timestamp_ms):
                 try:
-                    if pd.isna(timestamp_value) or timestamp_value is None:
-                        return None
-                    
-                    # Convert scientific notation to integer if needed
-                    if isinstance(timestamp_value, float):
-                        timestamp_ms = int(timestamp_value)
-                    else:
-                        timestamp_ms = int(float(timestamp_value))
-                    
-                    # Convert milliseconds to seconds for datetime
-                    timestamp_seconds = timestamp_ms / 1000
-                    
-                    # Create datetime object and format as MM/DD/YYYY
-                    date_obj = datetime.fromtimestamp(timestamp_seconds)
-                    return date_obj.strftime("%m/%d/%Y")
-                    
+                    if pd.isna(timestamp_ms) or timestamp_ms == '' or timestamp_ms is None:
+                        return ''
+                    timestamp_sec = int(timestamp_ms) / 1000
+                    date_obj = datetime.fromtimestamp(timestamp_sec)
+                    return date_obj.strftime('%m/%d/%Y')
                 except (ValueError, OSError, OverflowError) as e:
-                    logger(f"[spray_notifications] Date conversion error for value {timestamp_value}: {e}")
-                    return str(timestamp_value)  # Return original value if conversion fails
-            
-            # Apply conversion to DATEADDED column
-            original_sample = df['DATEADDED'].head(3).tolist()
-            logger(f"[spray_notifications] Sample original DATEADDED values: {original_sample}")
+                    logger(f"[spray_notifications] Date conversion error for value {timestamp_ms}: {e}")
+                    return str(timestamp_ms)
             
             df['DATEADDED'] = df['DATEADDED'].apply(convert_timestamp_to_date)
-            
-            converted_sample = df['DATEADDED'].head(3).tolist()
-            logger(f"[spray_notifications] Sample converted DATEADDED values: {converted_sample}")
-        else:
-            logger(f"[spray_notifications] DATEADDED column not found in DataFrame")
         
-        # 7. Remove duplicates based on core identity fields
-        dedup_fields = ["TYPE", "NAME", "PHONENUMBE", "Email"]
-        available_dedup_fields = [f for f in dedup_fields if f in df.columns]
+        # Remove duplicates
+        dedup_fields = [f for f in ['TYPE', 'NAME', 'PHONENUMBE', 'Email'] if f in df.columns]
+        logger(f"[spray_notifications] Deduplicating on fields: {dedup_fields}")
         
-        logger(f"[spray_notifications] Deduplication fields available: {available_dedup_fields}")
-        logger(f"[spray_notifications] All DataFrame columns: {list(df.columns)}")
+        if dedup_fields:
+            initial_count = len(df)
+            df = df.drop_duplicates(subset=dedup_fields, keep='first')
+            removed_count = initial_count - len(df)
+            logger(f"[spray_notifications] Removed {removed_count} duplicate records")
         
-        if available_dedup_fields:
-            logger(f"[spray_notifications] Deduplicating on fields: {available_dedup_fields}")
-            df_dedup = df.drop_duplicates(subset=available_dedup_fields, keep="first")
-            logger(f"[spray_notifications] Removed {len(df) - len(df_dedup)} duplicate records")
-        else:
-            df_dedup = df
-            logger("[spray_notifications] No deduplication fields available, keeping all records")
-        
-        # 8. Generate CSV with timestamp
+        # 7. Generate CSV
         today = datetime.today().strftime("%m%d%Y")
         filename = f"Spray_Notifications_{today}.csv"
         
-        # 9. Create BytesIO buffer
-        buf = BytesIO()
-        df_dedup.to_csv(buf, index=False)
-        buf.seek(0)
+        csv_buffer = BytesIO()
+        df.to_csv(csv_buffer, index=False)
+        csv_buffer.seek(0)
         
-        logger(f"[spray_notifications] Successfully generated {filename} with {len(df_dedup)} records")
+        logger(f"[spray_notifications] Successfully generated {filename} with {len(df)} records")
         
+        # Return dictionary with csv_buffer and filename as expected by Flask endpoint
         return {
-            "csv_buffer": buf,
-            "filename": filename,
-            "total_records": len(df_dedup),
-            "subgrids_processed": len(subgrid_features.features),
-            "buffer_distance": buffer_distance
+            'csv_buffer': csv_buffer,
+            'filename': filename
         }
         
     except Exception as e:
-        logger(f"[spray_notifications] Error: {str(e)}")
-        raise RuntimeError(f"Spray notifications generation failed: {str(e)}")
+        logger(f"[spray_notifications] Error: {e}")
+        raise RuntimeError(f"Spray notifications generation failed: {e}")
