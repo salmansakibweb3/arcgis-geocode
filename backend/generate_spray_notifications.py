@@ -267,6 +267,44 @@ def generate_spray_notifications(
         logger(f"[spray_notifications] DataFrame created with shape: {df.shape}")
         logger(f"[spray_notifications] DataFrame columns: {list(df.columns)}")
         
+        # Convert DATEADDED from timestamp to readable date format
+        if 'DATEADDED' in df.columns:
+            logger(f"[spray_notifications] Converting DATEADDED column from timestamp to date format")
+            
+            def convert_timestamp_to_date(timestamp_value):
+                """Convert Unix timestamp (milliseconds) to readable date format"""
+                try:
+                    if pd.isna(timestamp_value) or timestamp_value is None:
+                        return None
+                    
+                    # Convert scientific notation to integer if needed
+                    if isinstance(timestamp_value, float):
+                        timestamp_ms = int(timestamp_value)
+                    else:
+                        timestamp_ms = int(float(timestamp_value))
+                    
+                    # Convert milliseconds to seconds for datetime
+                    timestamp_seconds = timestamp_ms / 1000
+                    
+                    # Create datetime object and format as MM/DD/YYYY
+                    date_obj = datetime.fromtimestamp(timestamp_seconds)
+                    return date_obj.strftime("%m/%d/%Y")
+                    
+                except (ValueError, OSError, OverflowError) as e:
+                    logger(f"[spray_notifications] Date conversion error for value {timestamp_value}: {e}")
+                    return str(timestamp_value)  # Return original value if conversion fails
+            
+            # Apply conversion to DATEADDED column
+            original_sample = df['DATEADDED'].head(3).tolist()
+            logger(f"[spray_notifications] Sample original DATEADDED values: {original_sample}")
+            
+            df['DATEADDED'] = df['DATEADDED'].apply(convert_timestamp_to_date)
+            
+            converted_sample = df['DATEADDED'].head(3).tolist()
+            logger(f"[spray_notifications] Sample converted DATEADDED values: {converted_sample}")
+        else:
+            logger(f"[spray_notifications] DATEADDED column not found in DataFrame")
+        
         # 7. Remove duplicates based on core identity fields
         dedup_fields = ["TYPE", "NAME", "PHONENUMBE", "Email"]
         available_dedup_fields = [f for f in dedup_fields if f in df.columns]
