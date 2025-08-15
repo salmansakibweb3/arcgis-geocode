@@ -1,6 +1,6 @@
 interface Props {
     username: string;
-    onSelectWorkflow: (workflow: "geocode" | "update-surveillance" | "update-disease" | "adult-control") => void;
+    onSelectWorkflow: (workflow: "geocode" | "update-surveillance" | "update-disease" | "adult-control" | "spray-notifications") => void;
 }
 
 export default function WorkflowOptionsCard({ username, onSelectWorkflow }: Props) {
@@ -38,6 +38,13 @@ export default function WorkflowOptionsCard({ username, onSelectWorkflow }: Prop
                     className="w-full bg-purple-600 text-white px-6 py-3 rounded-lg text-lg hover:bg-purple-700"
                 >
                     🚁 Adult Control Workflow
+                </button>
+
+                <button
+                    onClick={() => onSelectWorkflow("spray-notifications")}
+                    className="w-full bg-indigo-600 text-white px-6 py-3 rounded-lg text-lg hover:bg-indigo-700"
+                >
+                    📧 Generate Spray Notifications
                 </button>
             </div>
         </div>

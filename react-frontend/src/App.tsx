@@ -6,8 +6,9 @@ import PrepareDataCard from "./components/PrepareDataCard";
 import UpdateLayerCard from "./components/UpdateLayerCard";
 import WorkflowOptionsCard from "./components/WorkflowOptionsCard";
 import AdultControlCard from "./components/AdultControlCard";
+import SprayNotificationsCard from "./components/SprayNotificationsCard";
 
-type Workflow = "home" | "geocode" | "update-surveillance" | "update-disease" | "adult-control";
+type Workflow = "home" | "geocode" | "update-surveillance" | "update-disease" | "adult-control" | "spray-notifications";
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -74,6 +75,12 @@ function App() {
       {workflow === "adult-control" && (
         <>
           <AdultControlCard />
+        </>
+      )}
+
+      {workflow === "spray-notifications" && (
+        <>
+          <SprayNotificationsCard />
         </>
       )}
     </main>
