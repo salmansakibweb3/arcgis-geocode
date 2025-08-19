@@ -3,6 +3,7 @@ import api from "../api";
 
 interface PositiveSample {
     objectId: number;
+    agency_pool_num?: string;
     x: number;
     y: number;
     collection_date: string;
@@ -237,22 +238,31 @@ export default function DiseaseMapGenerationCard() {
                                             <table className="w-full text-xs">
                                                 <thead className="bg-gray-100 sticky top-0">
                                                     <tr>
-                                                        <th className="px-2 py-1 text-left">ID</th>
+                                                        <th className="px-2 py-1 text-left">Pool ID</th>
                                                         <th className="px-2 py-1 text-left">Coordinates</th>
                                                         <th className="px-2 py-1 text-left">Collection Date</th>
                                                         <th className="px-2 py-1 text-left">Diseases</th>
+                                                        <th className="px-2 py-1 text-left">Action</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
                                                     {result.samples.map((sample, index) => (
                                                         <tr key={index} className="border-t">
-                                                            <td className="px-2 py-1">{sample.objectId}</td>
+                                                            <td className="px-2 py-1">{sample.agency_pool_num || sample.objectId}</td>
                                                             <td className="px-2 py-1 font-mono">
                                                                 {sample.x?.toFixed(6)}, {sample.y?.toFixed(6)}
                                                             </td>
                                                             <td className="px-2 py-1">{formatDate(sample.collection_date)}</td>
                                                             <td className="px-2 py-1">
                                                                 {getDiseaseIcon(sample.diseases)} {sample.diseases.join(", ")}
+                                                            </td>
+                                                            <td className="px-2 py-1">
+                                                                <button 
+                                                                    onClick={() => alert(`Generate map for Pool ${sample.agency_pool_num || sample.objectId}`)}
+                                                                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1 rounded transition-colors"
+                                                                >
+                                                                    📍 Generate Map
+                                                                </button>
                                                             </td>
                                                         </tr>
                                                     ))}

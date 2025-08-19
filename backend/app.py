@@ -11,6 +11,7 @@ from arcgis.features import FeatureLayerCollection, FeatureLayer
 from prepare_data import prepare_data
 from update_layer import process_update_layer
 from generate_spray_notifications import generate_spray_notifications
+from disease_maps import analyze_disease_positives
 
 app = Flask(__name__)
 CORS(app)
@@ -455,191 +456,14 @@ def analyze_disease_positives_endpoint():
 
     try:
         data = request.get_json()
-        # Hardcoded Pools layer ID
-        pools_layer_id = "d2a9cfa0aa4e4b0e8a2c30da319957fe"
         start_date = data.get('start_date')
         end_date = data.get('end_date')
         
         if not start_date or not end_date:
             return jsonify({"status": "failure", "message": "Both start_date and end_date are required"}), 400
         
-        from datetime import datetime
-        from arcgis.features import FeatureLayerCollection, FeatureLayer
-        
-        # Log the request
-        print(f"[disease_analysis] Starting analysis for layer {pools_layer_id}")
-        print(f"[disease_analysis] Date range: {start_date} to {end_date}")
-        
-        # Access the pools layer
-        try:
-            pools_item = gis.content.get(pools_layer_id)
-            if not pools_item:
-                return jsonify({"status": "failure", "message": f"Layer {pools_layer_id} not found"}), 400
-                
-            # Try to get the layer - could be standalone or part of a service
-            if pools_item.type == "Feature Service":
-                pools_layer = FeatureLayerCollection.fromitem(pools_item).layers[0]
-            else:
-                # Standalone shapefile/feature layer
-                pools_layer = FeatureLayer.fromitem(pools_item)
-                
-            print(f"[disease_analysis] Successfully accessed layer: {pools_item.title}")
-            
-        except Exception as layer_error:
-            print(f"[disease_analysis] Error accessing layer: {layer_error}")
-            return jsonify({"status": "failure", "message": f"Error accessing layer: {str(layer_error)}"}), 400
-        
-        # Get layer info and fields for console logging
-        layer_properties = pools_layer.properties
-        field_names = [f['name'] for f in layer_properties.fields] if hasattr(layer_properties, 'fields') else []
-        
-        print(f"[disease_analysis] Layer fields: {field_names}")
-        
-        # Log field types and details
-        if hasattr(layer_properties, 'fields'):
-            for field in layer_properties.fields:
-                print(f"[disease_analysis] Field: {field['name']} | Type: {field['type']} | Alias: {field.get('alias', 'N/A')}")
-        
-        # Get total feature count
-        total_count = pools_layer.query(return_count_only=True)
-        print(f"[disease_analysis] Total features in layer: {total_count}")
-        
-        # Construct the WHERE clause for date filtering
-        # We'll try common date field patterns and let the user know what we find
-        date_field_candidates = [
-            'add_date', 'Add_Date', 'ADD_DATE',
-            'collection_date', 'Collection_Date', 'COLLECTION_DATE',
-            'date_added', 'Date_Added', 'DATE_ADDED',
-            'sample_date', 'Sample_Date', 'SAMPLE_DATE'
-        ]
-        
-        # Find which date fields exist
-        existing_date_fields = [field for field in date_field_candidates if field in field_names]
-        print(f"[disease_analysis] Found date fields: {existing_date_fields}")
-        
-        # For now, let's assume 'add_date' field (adjust based on actual field name)
-        date_field = 'add_date'  # We'll make this configurable later
-        
-        # Convert dates to proper format for ArcGIS query
-        try:
-            start_dt = datetime.strptime(start_date, '%Y-%m-%d')
-            end_dt = datetime.strptime(end_date, '%Y-%m-%d')
-            
-            # Format for ArcGIS SQL query (depends on your database type)
-            # For most cases, this format works: date '2025-01-01'
-            date_where = f"{date_field} >= date '{start_date}' AND {date_field} <= date '{end_date}'"
-            
-        except ValueError as date_error:
-            return jsonify({"status": "failure", "message": f"Invalid date format: {str(date_error)}"}), 400
-        
-        print(f"[disease_analysis] Date WHERE clause: {date_where}")
-        
-        # First, get all samples within the date range to understand the data structure
-        try:
-            all_samples = pools_layer.query(
-                where=date_where,
-                out_fields='*',
-                return_geometry=True,
-                result_record_count=1000  # Limit to avoid large queries initially
-            )
-            
-            print(f"[disease_analysis] Found {len(all_samples.features)} samples in date range")
-            
-            # Log the first few samples to understand the data structure
-            if len(all_samples.features) > 0:
-                first_sample = all_samples.features[0]
-                print(f"[disease_analysis] First sample attributes: {first_sample.attributes}")
-                print(f"[disease_analysis] First sample geometry: {first_sample.geometry}")
-                
-                # Look for disease fields
-                disease_field_patterns = {
-                    'WNV': ['wnv', 'WNV', 'west_nile', 'West_Nile', 'WEST_NILE'],
-                    'SLEV': ['slev', 'SLEV', 'st_louis', 'St_Louis', 'ST_LOUIS'],
-                    'WEEV': ['weev', 'WEEV', 'western_equine', 'Western_Equine', 'WESTERN_EQUINE']
-                }
-                
-                found_disease_fields = {}
-                for disease, patterns in disease_field_patterns.items():
-                    for pattern in patterns:
-                        if pattern in field_names:
-                            found_disease_fields[disease] = pattern
-                            break
-                
-                print(f"[disease_analysis] Found disease fields: {found_disease_fields}")
-                
-        except Exception as query_error:
-            print(f"[disease_analysis] Error querying samples: {query_error}")
-            # Try without date filter to see if layer is accessible
-            try:
-                test_query = pools_layer.query(where="1=1", return_count_only=True, result_record_count=1)
-                print(f"[disease_analysis] Layer is accessible, but date query failed. Total records: {test_query}")
-                return jsonify({
-                    "status": "failure", 
-                    "message": f"Date query failed. Check date field name. Available fields: {', '.join(field_names)}"
-                }), 400
-            except:
-                return jsonify({"status": "failure", "message": f"Layer query error: {str(query_error)}"}), 400
-        
-        # Now identify positive samples
-        positive_samples = []
-        
-        for feature in all_samples.features:
-            attrs = feature.attributes
-            geometry = feature.geometry
-            
-            # Check for positive results (1 means positive, 0 means negative)
-            diseases_positive = []
-            
-            # Check each disease field if it exists
-            for disease, field_name in found_disease_fields.items():
-                if attrs.get(field_name) == 1:
-                    diseases_positive.append(disease)
-            
-            # If any disease is positive, add to our list
-            if diseases_positive:
-                # Extract coordinates
-                if geometry and 'x' in geometry and 'y' in geometry:
-                    x, y = geometry['x'], geometry['y']
-                elif geometry and 'rings' in geometry:
-                    # For polygon geometry, get centroid (shouldn't happen for point samples)
-                    continue
-                else:
-                    continue
-                
-                positive_samples.append({
-                    'objectId': attrs.get('OBJECTID', attrs.get('objectid', attrs.get('FID', 'Unknown'))),
-                    'x': x,
-                    'y': y,
-                    'collection_date': attrs.get('collection_date', attrs.get('Collection_Date', 'Unknown')),
-                    'add_date': attrs.get('add_date', attrs.get('Add_Date', 'Unknown')),
-                    'wnv_positive': 'WNV' in diseases_positive,
-                    'slev_positive': 'SLEV' in diseases_positive,
-                    'weev_positive': 'WEEV' in diseases_positive,
-                    'diseases': diseases_positive
-                })
-        
-        print(f"[disease_analysis] Found {len(positive_samples)} positive samples")
-        
-        # Prepare response
-        result = {
-            "status": "success",
-            "message": f"Analysis completed for {pools_item.title}",
-            "total_samples": len(all_samples.features),
-            "positive_samples": len(positive_samples),
-            "samples": positive_samples[:50],  # Limit to first 50 for display
-            "date_range": {
-                "start_date": start_date,
-                "end_date": end_date
-            },
-            "layer_info": {
-                "title": pools_item.title,
-                "feature_count": total_count,
-                "fields": field_names,
-                "found_date_fields": existing_date_fields,
-                "found_disease_fields": found_disease_fields
-            }
-        }
-        
+        # Use the refactored disease analysis function
+        result = analyze_disease_positives(gis, start_date, end_date)
         return jsonify(result)
         
     except Exception as e:
