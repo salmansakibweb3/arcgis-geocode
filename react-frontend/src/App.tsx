@@ -7,8 +7,9 @@ import UpdateLayerCard from "./components/UpdateLayerCard";
 import WorkflowOptionsCard from "./components/WorkflowOptionsCard";
 import AdultControlCard from "./components/AdultControlCard";
 import SprayNotificationsCard from "./components/SprayNotificationsCard";
+import DiseaseMapGenerationCard from "./components/DiseaseMapGenerationCard";
 
-type Workflow = "home" | "geocode" | "update-surveillance" | "update-disease" | "adult-control" | "spray-notifications";
+type Workflow = "home" | "geocode" | "update-surveillance" | "update-disease" | "adult-control" | "spray-notifications" | "disease-map-generation";
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -81,6 +82,12 @@ function App() {
       {workflow === "spray-notifications" && (
         <>
           <SprayNotificationsCard />
+        </>
+      )}
+
+      {workflow === "disease-map-generation" && (
+        <>
+          <DiseaseMapGenerationCard />
         </>
       )}
     </main>
