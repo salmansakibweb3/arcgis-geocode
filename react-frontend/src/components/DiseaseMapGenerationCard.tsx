@@ -6,6 +6,7 @@ interface PositiveSample {
     agency_pool_num?: string;
     x: number;
     y: number;
+    subgrid_label?: string;
     collection_date: string;
     add_date: string;
     wnv_positive: boolean;
@@ -239,6 +240,7 @@ export default function DiseaseMapGenerationCard() {
                                                 <thead className="bg-gray-100 sticky top-0">
                                                     <tr>
                                                         <th className="px-2 py-1 text-left">Pool ID</th>
+                                                        <th className="px-2 py-1 text-left">Subgrid</th>
                                                         <th className="px-2 py-1 text-left">Coordinates</th>
                                                         <th className="px-2 py-1 text-left">Collection Date</th>
                                                         <th className="px-2 py-1 text-left">Diseases</th>
@@ -249,6 +251,9 @@ export default function DiseaseMapGenerationCard() {
                                                     {result.samples.map((sample, index) => (
                                                         <tr key={index} className="border-t">
                                                             <td className="px-2 py-1">{sample.agency_pool_num || sample.objectId}</td>
+                                                            <td className="px-2 py-1 font-semibold text-blue-700">
+                                                                {sample.subgrid_label || 'Unknown'}
+                                                            </td>
                                                             <td className="px-2 py-1 font-mono">
                                                                 {sample.x?.toFixed(6)}, {sample.y?.toFixed(6)}
                                                             </td>

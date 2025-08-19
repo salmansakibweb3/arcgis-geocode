@@ -91,6 +91,51 @@ def identify_date_fields(field_names):
     logger.info(f"Found date fields: {existing_date_fields}")
     return existing_date_fields
 
+def find_subgrid_for_point(subgrid_layer, longitude, latitude):
+    """
+    Find the subgrid that contains a given point
+    
+    Args:
+        subgrid_layer: The subgrid feature layer
+        longitude: Point longitude
+        latitude: Point latitude
+        
+    Returns:
+        str: GridLabel of the containing subgrid, or None if not found
+    """
+    try:
+        if not subgrid_layer:
+            return None
+            
+        # Create point geometry for spatial query
+        point_geometry = {
+            "x": longitude,
+            "y": latitude,
+            "spatialReference": {"wkid": 4326}  # WGS84
+        }
+        
+        # Find intersecting subgrids
+        intersecting_subgrids = subgrid_layer.query(
+            geometry_filter={
+                'geometry': point_geometry,
+                'geometryType': 'esriGeometryPoint',
+                'spatialRel': 'esriSpatialRelIntersects'
+            },
+            out_fields='GridLabel',
+            return_geometry=False,
+            result_record_count=1  # Only need the first match
+        )
+        
+        if intersecting_subgrids.features:
+            grid_label = intersecting_subgrids.features[0].attributes.get('GridLabel')
+            return grid_label
+        else:
+            return None
+            
+    except Exception as e:
+        logger.warning(f"Error finding subgrid for point {longitude}, {latitude}: {e}")
+        return None
+
 def analyze_disease_positives(gis, start_date, end_date, date_field='add_date'):
     """
     Analyze disease positive samples within a date range
@@ -152,6 +197,14 @@ def analyze_disease_positives(gis, start_date, end_date, date_field='add_date'):
         # Process samples and identify positives
         positive_samples = []
         
+        # Get subgrid layer for spatial queries
+        try:
+            subgrid_layer, subgrid_info = get_layer_from_item(gis, SUBGRID_LAYER_ID)
+            logger.info(f"Subgrid layer accessed: {subgrid_info['title']}")
+        except Exception as e:
+            logger.warning(f"Could not access subgrid layer: {e}")
+            subgrid_layer = None
+        
         for feature in all_samples.features:
             attrs = feature.attributes
             geometry = feature.geometry
@@ -172,11 +225,15 @@ def analyze_disease_positives(gis, start_date, end_date, date_field='add_date'):
                 if longitude is None or latitude is None:
                     continue
                 
+                # Find which subgrid this point falls in
+                subgrid_label = find_subgrid_for_point(subgrid_layer, longitude, latitude)
+                
                 positive_samples.append({
                     'objectId': attrs.get('OBJECTID', attrs.get('objectid', attrs.get('FID', 'Unknown'))),
                     'agency_pool_num': attrs.get('agency_pool_num', attrs.get('Agency_Pool_Num', 'Unknown')),
                     'x': longitude,
                     'y': latitude,
+                    'subgrid_label': subgrid_label or 'Unknown',
                     'collection_date': attrs.get('collection_date', attrs.get('Collection_Date', 'Unknown')),
                     'add_date': attrs.get('add_date', attrs.get('Add_Date', 'Unknown')),
                     'wnv_positive': 'WNV' in diseases_positive,
