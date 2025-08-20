@@ -1,8 +1,8 @@
 from flask_cors import CORS
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, session
 import os
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 from io import StringIO, BytesIO
 from login import generate_oauth_url, arcgis_login
@@ -13,11 +13,48 @@ from update_layer import process_update_layer
 from generate_spray_notifications import generate_spray_notifications
 from disease_maps import analyze_disease_positives
 from shapefile_export import create_points_shapefile, create_polygons_shapefile
+import pickle
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, supports_credentials=True)
+
+# Configure session with a strong secret key and longer timeout
+app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-in-production')
+app.permanent_session_lifetime = timedelta(hours=8)  # 8 hour session timeout
+
 # Global GIS object after successful OAuth login
 gis = None
+gis_login_time = None
+
+def is_gis_session_valid():
+    """Check if the current GIS session is still valid"""
+    global gis, gis_login_time
+    
+    if gis is None or gis_login_time is None:
+        return False
+    
+    # Check if session is older than 4 hours (ArcGIS tokens typically last longer, but be safe)
+    session_age = datetime.now() - gis_login_time
+    if session_age > timedelta(hours=4):
+        return False
+    
+    # Try to make a simple API call to verify the session
+    try:
+        # This is a lightweight call to test if the session is still valid
+        user = gis.users.me
+        return user is not None
+    except Exception as e:
+        print(f"GIS session validation failed: {e}")
+        return False
+
+def ensure_valid_gis_session():
+    """Ensure we have a valid GIS session, return error if not"""
+    global gis
+    
+    if not is_gis_session_valid():
+        return {"status": "failure", "message": "Session expired. Please log in again.", "require_login": True}
+    
+    return {"status": "success", "gis": gis}
 
 def get_layer_info(gis, layer_id):
     """
@@ -67,7 +104,7 @@ def start_login():
 
 @app.route('/complete-login', methods=['POST'])
 def complete_login():
-    global gis
+    global gis, gis_login_time
     data = request.get_json()
     client_id = data.get('client_id')
     code = data.get('code')
@@ -75,7 +112,17 @@ def complete_login():
         return jsonify({"status": "failure", "message": "client_id or code missing"}), 400
     gis = arcgis_login(client_id, code)
     if gis:
+        gis_login_time = datetime.now()
+        session.permanent = True
+        session['logged_in'] = True
+        session['login_time'] = gis_login_time.isoformat()
+        
         user = gis.users.me
+        session['user_info'] = {
+            'username': user.username,
+            'fullName': user.fullName
+        }
+        
         return jsonify({
             "status": "success",
             "username": user.username,
@@ -84,6 +131,44 @@ def complete_login():
         })
     else:
         return jsonify({"status": "failure", "message": "Login failed"}), 400
+
+@app.route('/session-status', methods=['GET'])
+def session_status():
+    """Check if the user session is still valid"""
+    session_check = ensure_valid_gis_session()
+    
+    if session_check["status"] == "success":
+        return jsonify({
+            "status": "success",
+            "logged_in": True,
+            "user": session.get('user_info', {}),
+            "login_time": session.get('login_time')
+        })
+    else:
+        # Clear invalid session
+        session.clear()
+        return jsonify({
+            "status": "failure",
+            "logged_in": False,
+            "message": session_check.get("message", "Session invalid")
+        }), 401
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    """Logout and clear session"""
+    global gis, gis_login_time
+    
+    # Clear global variables
+    gis = None
+    gis_login_time = None
+    
+    # Clear session
+    session.clear()
+    
+    return jsonify({
+        "status": "success",
+        "message": "Logged out successfully"
+    })
 
 @app.route('/geocode', methods=['POST'])
 def geocode_endpoint():
@@ -451,9 +536,12 @@ def analyze_disease_positives_endpoint():
     Analyze disease positive samples from pools layer within a date range
     This is Step 1 of the Disease Map Generation workflow
     """
-    global gis
-    if not gis:
-        return jsonify({"status": "failure", "message": "Not logged in"}), 400
+    # Validate session
+    session_check = ensure_valid_gis_session()
+    if session_check["status"] != "success":
+        return jsonify(session_check), 401
+    
+    gis = session_check["gis"]
 
     try:
         data = request.get_json()
@@ -493,10 +581,9 @@ def export_points_shapefile():
             'end_date': end_date
         })
         
-        # Generate filename
-        start_formatted = start_date.replace('-', '') if start_date else 'unknown'
-        end_formatted = end_date.replace('-', '') if end_date else 'unknown'
-        filename = f"PositiveSamples_{start_formatted}_{end_formatted}.zip"
+        # Generate filename with today's date
+        today = datetime.today().strftime("%m%d%Y")
+        filename = f"Pools_Pos_{today}.zip"
         
         return send_file(
             zip_buffer,
@@ -531,10 +618,9 @@ def export_polygons_shapefile():
             'end_date': end_date
         })
         
-        # Generate filename
-        start_formatted = start_date.replace('-', '') if start_date else 'unknown'
-        end_formatted = end_date.replace('-', '') if end_date else 'unknown'
-        filename = f"AssociatedSubgrids_{start_formatted}_{end_formatted}.zip"
+        # Generate filename with today's date
+        today = datetime.today().strftime("%m%d%Y")
+        filename = f"Subgrids_Pos_{today}.zip"
         
         return send_file(
             zip_buffer,
@@ -548,6 +634,38 @@ def export_polygons_shapefile():
         import traceback
         traceback.print_exc()
         return jsonify({"status": "failure", "message": f"Polygons shapefile export failed: {str(e)}"}), 500
+
+@app.route("/get-positive-subgrids", methods=["POST"])
+def get_positive_subgrids():
+    """Get list of positive subgrids for spray notifications integration"""
+    try:
+        data = request.get_json()
+        samples = data.get('samples', [])
+        
+        if not samples:
+            return jsonify({"status": "failure", "message": "No samples provided"}), 400
+        
+        # Extract unique subgrid labels from positive samples
+        positive_subgrids = list(set([
+            sample.get('subgrid_label') 
+            for sample in samples 
+            if sample.get('subgrid_label') and sample.get('subgrid_label') != 'Unknown'
+        ]))
+        
+        # Sort for consistent ordering
+        positive_subgrids.sort()
+        
+        return jsonify({
+            "status": "success",
+            "positive_subgrids": positive_subgrids,
+            "count": len(positive_subgrids)
+        })
+        
+    except Exception as e:
+        print(f"[get_positive_subgrids] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "failure", "message": f"Failed to get positive subgrids: {str(e)}"}), 500
     
 if __name__ == "__main__":
     app.run(debug=True)

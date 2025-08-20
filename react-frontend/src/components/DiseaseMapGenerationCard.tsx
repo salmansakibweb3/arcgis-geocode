@@ -41,24 +41,26 @@ export default function DiseaseMapGenerationCard() {
     // Set default date range to current week
     const getCurrentWeekRange = () => {
         const now = new Date();
-        const startOfWeek = new Date(now);
         const dayOfWeek = now.getDay();
-        const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Monday start
         
-        startOfWeek.setDate(now.getDate() - daysToSubtract);
-        startOfWeek.setHours(0, 0, 0, 0);
+        // Find the most recent Saturday (end of the last complete Sunday-Saturday week)
+        const lastSaturday = new Date(now);
+        const daysToSubtract = dayOfWeek === 0 ? 1 : dayOfWeek + 1; // If Sunday (0), go back 1 day. Otherwise, go back dayOfWeek + 1 days
+        lastSaturday.setDate(now.getDate() - daysToSubtract);
+        lastSaturday.setHours(23, 59, 59, 999);
         
-        const endOfWeek = new Date(startOfWeek);
-        endOfWeek.setDate(startOfWeek.getDate() + 6);
-        endOfWeek.setHours(23, 59, 59, 999);
+        // Find the Sunday that started that week (6 days before Saturday)
+        const lastSunday = new Date(lastSaturday);
+        lastSunday.setDate(lastSaturday.getDate() - 6);
+        lastSunday.setHours(0, 0, 0, 0);
         
         return {
-            start: startOfWeek.toISOString().split('T')[0],
-            end: endOfWeek.toISOString().split('T')[0]
+            start: lastSunday.toISOString().split('T')[0],
+            end: lastSaturday.toISOString().split('T')[0]
         };
     };
 
-    // Initialize with current week if dates are empty
+    // Initialize with latest complete week (Sunday-Saturday) if dates are empty
     const initializeCurrentWeek = () => {
         const weekRange = getCurrentWeekRange();
         setStartDate(weekRange.start);
@@ -131,11 +133,14 @@ export default function DiseaseMapGenerationCard() {
             const link = document.createElement('a');
             link.href = url;
             
-            // Generate filename with date range
-            const startFormatted = startDate.replace(/-/g, '');
-            const endFormatted = endDate.replace(/-/g, '');
-            const fileType = type === 'points' ? 'PositiveSamples' : 'AssociatedSubgrids';
-            link.download = `${fileType}_${startFormatted}_${endFormatted}.zip`;
+            // Generate filename with today's date
+            const today = new Date().toLocaleDateString('en-US', {
+                month: '2-digit',
+                day: '2-digit',
+                year: 'numeric'
+            }).replace(/\//g, '');
+            const fileType = type === 'points' ? 'Pools_Pos' : 'Subgrids_Pos';
+            link.download = `${fileType}_${today}.zip`;
             
             link.click();
             window.URL.revokeObjectURL(url);
@@ -143,6 +148,52 @@ export default function DiseaseMapGenerationCard() {
         } catch (error: any) {
             console.error(`Error downloading ${type} shapefile:`, error);
             alert(`Failed to download ${type} shapefile. Please try again.`);
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+
+    const handleSprayNotifications = async () => {
+        if (!result?.samples || result.samples.length === 0) {
+            alert('No positive samples available for spray notifications');
+            return;
+        }
+
+        try {
+            setIsAnalyzing(true);
+            
+            // Get the positive subgrids from the backend
+            const response = await api.post('/get-positive-subgrids', {
+                samples: result.samples
+            });
+
+            if (response.data.status === 'success') {
+                const positiveSubgrids = response.data.positive_subgrids;
+                
+                // Store data in localStorage for the spray notifications page
+                const sprayData = {
+                    subgrids: positiveSubgrids.join(', '),
+                    start_date: startDate,
+                    end_date: endDate,
+                    timestamp: Date.now()
+                };
+                localStorage.setItem('spray_notifications_prefill', JSON.stringify(sprayData));
+                
+                // Open spray notifications page in same window to preserve login session
+                const currentUrl = window.location.href;
+                const baseUrl = currentUrl.split('?')[0]; // Remove any existing query parameters
+                window.location.href = baseUrl + '?tab=spray-notifications&auto_fill=true';
+                
+                // Alternative: If you prefer new tab, use this instead:
+                // window.open(baseUrl + '?tab=spray-notifications&auto_fill=true', '_blank');
+                
+            } else {
+                alert('Failed to get positive subgrids. Please try again.');
+            }
+            
+        } catch (error: any) {
+            console.error('Error getting positive subgrids:', error);
+            alert('Failed to open spray notifications. Please try again.');
         } finally {
             setIsAnalyzing(false);
         }
@@ -203,8 +254,9 @@ export default function DiseaseMapGenerationCard() {
                         <button
                             onClick={initializeCurrentWeek}
                             className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-md transition-colors text-sm"
+                            title="Select the latest complete Sunday-Saturday week"
                         >
-                            📅 This Week
+                            📅 Latest Week
                         </button>
                     </div>
                 </div>
@@ -334,6 +386,12 @@ export default function DiseaseMapGenerationCard() {
                                                 >
                                                     🔲 Associated Subgrids Shapefile
                                                 </button>
+                                                <button 
+                                                    onClick={handleSprayNotifications}
+                                                    className="bg-orange-600 hover:bg-orange-700 text-white text-sm px-4 py-2 rounded transition-colors flex items-center gap-2"
+                                                >
+                                                    🚁 Generate Spray Notifications
+                                                </button>
                                             </div>
                                         </div>
                                     </div>
@@ -367,7 +425,7 @@ export default function DiseaseMapGenerationCard() {
                 <h3 className="font-medium text-blue-800 mb-2">💡 Instructions</h3>
                 <div className="text-sm text-blue-700 space-y-1">
                     <p>1. <strong>Enter Pools Layer ID:</strong> The ArcGIS Online layer containing your disease monitoring data</p>
-                    <p>2. <strong>Select Date Range:</strong> Choose the period to analyze (use "This Week" for current week)</p>
+                    <p>2. <strong>Select Date Range:</strong> Choose the period to analyze (use "Latest Week" for the most recent Sunday-Saturday week)</p>
                     <p>3. <strong>Analyze:</strong> The system will read the layer structure and identify positive samples</p>
                     <p>4. <strong>Next:</strong> Once positives are found, proceed to automated map generation</p>
                 </div>

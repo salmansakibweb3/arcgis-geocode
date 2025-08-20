@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import LoginCard from "./components/LoginCard";
 import GeocodeCard from "./components/GeocodeCard";
 import CoordsCard from "./components/CoordsCard";
@@ -8,6 +8,7 @@ import WorkflowOptionsCard from "./components/WorkflowOptionsCard";
 import AdultControlCard from "./components/AdultControlCard";
 import SprayNotificationsCard from "./components/SprayNotificationsCard";
 import DiseaseMapGenerationCard from "./components/DiseaseMapGenerationCard";
+import api from "./api";
 
 type Workflow = "home" | "geocode" | "update-surveillance" | "update-disease" | "adult-control" | "spray-notifications" | "disease-map-generation";
 
@@ -16,9 +17,77 @@ function App() {
   const [workflow, setWorkflow] = useState<Workflow>("home");
   const [username, setUsername] = useState<string | null>(null);
 
+  // Check session status on app load and periodically
+  useEffect(() => {
+    const checkSessionStatus = async () => {
+      try {
+        const response = await api.get('/session-status');
+        if (response.data.logged_in) {
+          setIsLoggedIn(true);
+          setUsername(response.data.user?.fullName || response.data.user?.username || 'User');
+        } else {
+          setIsLoggedIn(false);
+          setUsername(null);
+          setWorkflow("home");
+        }
+      } catch (error) {
+        console.log('Session check failed - user needs to login');
+        setIsLoggedIn(false);
+        setUsername(null);
+        setWorkflow("home");
+      }
+    };
+
+    // Check immediately on load
+    checkSessionStatus();
+
+    // Check every 5 minutes
+    const interval = setInterval(checkSessionStatus, 5 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Check URL parameters for routing (e.g., ?tab=spray-notifications)
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const tab = urlParams.get('tab');
+    
+    if (tab && isLoggedIn) {
+      switch (tab) {
+        case 'spray-notifications':
+          setWorkflow('spray-notifications');
+          break;
+        case 'disease-map-generation':
+          setWorkflow('disease-map-generation');
+          break;
+        case 'geocode':
+          setWorkflow('geocode');
+          break;
+        case 'adult-control':
+          setWorkflow('adult-control');
+          break;
+        // Add other cases as needed
+        default:
+          setWorkflow('home');
+          break;
+      }
+    }
+  }, [isLoggedIn]);
+
   const handleLoginSuccess = (user: string) => {
     setIsLoggedIn(true);
     setUsername(user);
+    setWorkflow("home");
+  };
+
+  const handleLogout = async () => {
+    try {
+      await api.post('/logout');
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+    setIsLoggedIn(false);
+    setUsername(null);
     setWorkflow("home");
   };
 
@@ -35,12 +104,20 @@ function App() {
             <h2 className="text-sm font-normal text-gray-500 mt-1">Developed by Salman Sakib</h2>
         </h1>
         {isLoggedIn && (
-          <button
-            onClick={handleHomeClick}
-            className="bg-green-400 hover:bg-green-600 text-gray-800 px-4 py-2 rounded-md shadow-sm transition"
-          >
-            🏠 Home
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleHomeClick}
+              className="bg-green-400 hover:bg-green-600 text-gray-800 px-4 py-2 rounded-md shadow-sm transition"
+            >
+              🏠 Home
+            </button>
+            <button
+              onClick={handleLogout}
+              className="bg-red-400 hover:bg-red-600 text-white px-4 py-2 rounded-md shadow-sm transition"
+            >
+              🚪 Logout
+            </button>
+          </div>
         )}
       </header>
 

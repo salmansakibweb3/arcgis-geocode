@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import api from "../api";
 
 export default function SprayNotificationsCard() {
@@ -10,6 +10,56 @@ export default function SprayNotificationsCard() {
     const [result, setResult] = useState<any>(null);
     const [testResult, setTestResult] = useState<any>(null);
     const [layerInfo, setLayerInfo] = useState<any>(null);
+
+    // Check for URL parameters and localStorage data on component mount
+    useEffect(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const autoFill = urlParams.get('auto_fill');
+        
+        if (autoFill === 'true') {
+            // Try to get data from localStorage
+            const sprayDataJson = localStorage.getItem('spray_notifications_prefill');
+            if (sprayDataJson) {
+                try {
+                    const sprayData = JSON.parse(sprayDataJson);
+                    
+                    // Check if data is not too old (within 10 minutes)
+                    const dataAge = Date.now() - sprayData.timestamp;
+                    if (dataAge < 10 * 60 * 1000) { // 10 minutes
+                        // Auto-fill the subgrids field
+                        setSelectedSubgrids(sprayData.subgrids);
+                        
+                        // Show notification that subgrids were auto-filled
+                        setTimeout(() => {
+                            alert(`Subgrids auto-filled from disease positive analysis:\n${sprayData.subgrids}`);
+                        }, 500);
+                        
+                        // Clear the localStorage data after use
+                        localStorage.removeItem('spray_notifications_prefill');
+                    } else {
+                        // Data is too old, clear it
+                        localStorage.removeItem('spray_notifications_prefill');
+                    }
+                } catch (error) {
+                    console.error('Error parsing spray notifications data:', error);
+                    localStorage.removeItem('spray_notifications_prefill');
+                }
+            } else {
+                // Fallback to URL parameters (for backwards compatibility)
+                const subgridsParam = urlParams.get('subgrids');
+                if (subgridsParam) {
+                    setSelectedSubgrids(decodeURIComponent(subgridsParam));
+                    setTimeout(() => {
+                        alert(`Subgrids auto-filled from disease positive analysis:\n${decodeURIComponent(subgridsParam)}`);
+                    }, 500);
+                }
+            }
+            
+            // Clear the URL parameters to clean up the URL
+            const newUrl = window.location.pathname + window.location.hash;
+            window.history.replaceState({}, document.title, newUrl);
+        }
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
