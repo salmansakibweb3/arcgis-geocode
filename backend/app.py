@@ -463,7 +463,7 @@ def analyze_disease_positives_endpoint():
             return jsonify({"status": "failure", "message": "Both start_date and end_date are required"}), 400
         
         # Use the refactored disease analysis function
-        result = analyze_disease_positives(gis, start_date, end_date)
+        result = analyze_disease_positives(gis, start_date, end_date, date_field='collection_date')
         return jsonify(result)
         
     except Exception as e:
