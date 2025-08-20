@@ -490,6 +490,9 @@ def generate_spray_notifications_endpoint():
         if not selected_subgrids:
             return jsonify({"status": "failure", "message": "No subgrids selected"}), 400
         
+        # Log the request for debugging
+        app.logger.info(f"[spray_notifications] Processing {len(selected_subgrids)} subgrids with {buffer_distance}ft buffer")
+        
         # Validate GridLabel format (e.g., "172024-1", "122136-1")
         import re
         gridlabel_pattern = re.compile(r'^\d+-\d+$')
@@ -512,12 +515,52 @@ def generate_spray_notifications_endpoint():
         except (ValueError, TypeError):
             return jsonify({"status": "failure", "message": "Invalid buffer distance"}), 400
         
-        # Generate spray notifications
-        result = generate_spray_notifications(
-            gis,
-            subgrid_labels,
-            buffer_dist
-        )
+        # Generate spray notifications with timeout protection and enhanced logging
+        try:
+            import signal
+            import time
+            
+            def timeout_handler(signum, frame):
+                raise TimeoutError("Spray notifications generation timed out")
+            
+            # Set timeout for production (5 minutes)
+            timeout_seconds = 300
+            
+            # Only use timeout on Unix-like systems (not Windows)
+            import os
+            if os.name != 'nt':
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(timeout_seconds)
+            
+            start_time = time.time()
+            app.logger.info(f"[spray_notifications] Starting generation at {start_time}")
+            
+            result = generate_spray_notifications(
+                gis,
+                subgrid_labels,
+                buffer_dist,
+                logger=app.logger.info
+            )
+            
+            elapsed_time = time.time() - start_time
+            app.logger.info(f"[spray_notifications] Completed in {elapsed_time:.2f} seconds")
+            
+            # Clear timeout
+            if os.name != 'nt':
+                signal.alarm(0)
+            
+        except TimeoutError:
+            app.logger.error(f"[spray_notifications] Process timed out after {timeout_seconds} seconds")
+            return jsonify({
+                "status": "failure", 
+                "message": f"Spray notifications generation timed out after {timeout_seconds//60} minutes. Try reducing the number of subgrids or contact support."
+            }), 408
+        except Exception as gen_error:
+            app.logger.error(f"[spray_notifications] Generation failed: {gen_error}")
+            return jsonify({
+                "status": "failure", 
+                "message": f"Spray notifications generation failed: {str(gen_error)}"
+            }), 500
         
         # Return the CSV file for download
         return send_file(

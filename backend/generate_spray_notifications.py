@@ -4,9 +4,23 @@ import pandas as pd
 from datetime import datetime
 import tempfile
 import os
+import time
 from io import BytesIO
 from arcgis.features import FeatureLayer
 from arcgis.geometry import Geometry
+
+def retry_query(func, max_retries=3, delay=2, logger=print):
+    """Retry a query function with exponential backoff"""
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise e
+            logger(f"[retry] Query attempt {attempt+1} failed: {e}. Retrying in {delay}s...")
+            time.sleep(delay)
+            delay *= 2  # Exponential backoff
+    return None
 
 def generate_spray_notifications(
     gis,
@@ -15,8 +29,8 @@ def generate_spray_notifications(
     logger=print
 ):
     """
-    Generate spray notifications CSV using distance-based spatial queries instead of buffer polygons.
-    This approach is more reliable than creating buffer geometries with the ArcGIS Python API.
+    Generate spray notifications CSV using OPTIMIZED spatial queries for production.
+    Optimized to avoid timeouts in production environments like Render.
     
     Args:
         gis: Authenticated ArcGIS GIS object
@@ -28,7 +42,7 @@ def generate_spray_notifications(
         BytesIO buffer containing the CSV data
     """
     
-    logger("[spray_notifications] Starting spray notifications generation")
+    logger("[spray_notifications] Starting spray notifications generation (OPTIMIZED)")
     
     # Layer IDs
     SUBGRID_LAYER_ID = "e8656893998e497fa8161f87d053a725"
@@ -95,115 +109,108 @@ def generate_spray_notifications(
         resident_layer = resident_item.layers[0]
         logger(f"[spray_notifications] Resident notices layer: '{resident_layer.properties.name}' (Type: {resident_item.type})")
         
-        # 5. Use a much simpler approach: distance-based queries with geographic functions
-        logger(f"[spray_notifications] Using distance-based SQL queries (most reliable approach)")
+        # 5. OPTIMIZED: Single combined query approach for production
+        logger(f"[spray_notifications] Using OPTIMIZED single-query approach for production")
         
         # Convert feet to meters for distance calculations
         buffer_meters = buffer_distance * 0.3048
         logger(f"[spray_notifications] Buffer distance: {buffer_distance} feet = {buffer_meters:.2f} meters")
         
         all_residents = []
+        processed_resident_ids = set()  # Avoid duplicates
         
-        for i, subgrid_geom in enumerate(subgrid_geometries):
-            logger(f"[spray_notifications] Processing subgrid {i+1}/{len(subgrid_geometries)}")
-            
+        # Calculate overall bounding box for ALL subgrids at once
+        all_extents = []
+        for geom in subgrid_geometries:
             try:
-                # Try multiple spatial relationship approaches
-                approaches = [
-                    ('intersects', 'esriSpatialRelIntersects'),
-                    ('contains', 'esriSpatialRelContains'), 
-                    ('within', 'esriSpatialRelWithin'),
-                    ('overlaps', 'esriSpatialRelOverlaps')
-                ]
-                
-                best_result = []
-                best_count = 0
-                
-                for approach_name, spatial_rel in approaches:
-                    try:
-                        query_result = resident_layer.query(
+                extent = geom.extent
+                if hasattr(extent, '__len__') and len(extent) == 4:
+                    all_extents.append(extent)
+                elif isinstance(extent, dict) and all(k in extent for k in ['xmin', 'ymin', 'xmax', 'ymax']):
+                    all_extents.append([extent['xmin'], extent['ymin'], extent['xmax'], extent['ymax']])
+            except Exception as e:
+                logger(f"[spray_notifications] Warning: Could not get extent for geometry: {e}")
+        
+        if not all_extents:
+            logger(f"[spray_notifications] No valid extents found, cannot proceed")
+            raise RuntimeError("No valid geometry extents found for subgrids")
+        
+        # Calculate combined bounding box for ALL subgrids
+        min_x = min(extent[0] for extent in all_extents)
+        min_y = min(extent[1] for extent in all_extents)
+        max_x = max(extent[2] for extent in all_extents)
+        max_y = max(extent[3] for extent in all_extents)
+        
+        # Add buffer to the combined envelope  
+        buffer_degrees = buffer_distance / 364000.0  # Rough conversion
+        combined_envelope = {
+            'xmin': min_x - buffer_degrees,
+            'ymin': min_y - buffer_degrees,
+            'xmax': max_x + buffer_degrees,
+            'ymax': max_y + buffer_degrees,
+            'spatialReference': {'wkid': 4326}  # WGS84
+        }
+        
+        logger(f"[spray_notifications] Querying ALL residents within combined envelope (single query)...")
+        logger(f"[spray_notifications] Combined envelope: [{min_x:.6f}, {min_y:.6f}, {max_x:.6f}, {max_y:.6f}] + {buffer_distance}ft buffer")
+        
+        try:
+            # SINGLE QUERY for all residents in the area WITH RETRY
+            def do_combined_query():
+                return resident_layer.query(
+                    geometry_filter={
+                        'geometry': combined_envelope,
+                        'geometryType': 'esriGeometryEnvelope',
+                        'spatialRel': 'esriSpatialRelIntersects'
+                    },
+                    out_fields='*',
+                    return_geometry=False,
+                    max_record_count=5000  # Increase limit for large areas
+                )
+            
+            all_query = retry_query(do_combined_query, max_retries=3, logger=logger)
+            all_residents = all_query.features if all_query else []
+            logger(f"[spray_notifications] Single query found {len(all_residents)} residents in combined area")
+            
+        except Exception as query_error:
+            logger(f"[spray_notifications] Combined query failed after retries, falling back to individual queries: {query_error}")
+            all_residents = []
+        
+        # Fallback with retries if main query failed
+        if not all_residents:
+            logger(f"[spray_notifications] No residents from combined query, trying individual queries with retries...")
+            
+            for i, subgrid_geom in enumerate(subgrid_geometries):
+                logger(f"[spray_notifications] Fallback query for subgrid {i+1}/{len(subgrid_geometries)}")
+                try:
+                    # Define individual query function for retry
+                    def do_individual_query():
+                        return resident_layer.query(
                             geometry_filter={
                                 'geometry': subgrid_geom,
                                 'geometryType': 'esriGeometryPolygon',
-                                'spatialRel': spatial_rel
-                            },
-                            out_fields='*',
-                            return_geometry=False
-                        )
-                        
-                        result_count = len(query_result.features)
-                        logger(f"[spray_notifications] {approach_name} query returned {result_count} residents")
-                        
-                        if result_count > best_count:
-                            best_result = query_result.features
-                            best_count = result_count
-                            logger(f"[spray_notifications] New best result: {approach_name} with {result_count} residents")
-                        
-                    except Exception as approach_error:
-                        logger(f"[spray_notifications] {approach_name} approach failed: {approach_error}")
-                        continue
-                
-                # Now try expanded envelope approach for buffer effect
-                try:
-                    logger(f"[spray_notifications] Trying expanded envelope for buffer effect...")
-                    
-                    # Get geometry extent and expand it
-                    geom_extent = subgrid_geom.extent
-                    
-                    # Handle both tuple and dict formats safely
-                    if hasattr(geom_extent, '__len__') and len(geom_extent) == 4:
-                        # Tuple format: (xmin, ymin, xmax, ymax)
-                        xmin, ymin, xmax, ymax = geom_extent
-                        sr = subgrid_geom.spatial_reference
-                    else:
-                        # Already handled as dict in previous approach
-                        logger(f"[spray_notifications] Complex extent format, skipping envelope expansion")
-                        xmin = ymin = xmax = ymax = None
-                        sr = None
-                    
-                    if xmin is not None:
-                        # Convert buffer distance to degrees (rough approximation)
-                        buffer_degrees = buffer_distance / 364000.0
-                        
-                        # Create expanded envelope geometry
-                        expanded_envelope = {
-                            'xmin': xmin - buffer_degrees,
-                            'ymin': ymin - buffer_degrees, 
-                            'xmax': xmax + buffer_degrees,
-                            'ymax': ymax + buffer_degrees,
-                            'spatialReference': sr
-                        }
-                        
-                        envelope_query = resident_layer.query(
-                            geometry_filter={
-                                'geometry': expanded_envelope,
-                                'geometryType': 'esriGeometryEnvelope',
                                 'spatialRel': 'esriSpatialRelIntersects'
                             },
                             out_fields='*',
                             return_geometry=False
                         )
-                        
-                        envelope_count = len(envelope_query.features)
-                        logger(f"[spray_notifications] Expanded envelope returned {envelope_count} residents")
-                        
-                        if envelope_count > best_count:
-                            best_result = envelope_query.features
-                            best_count = envelope_count
-                            logger(f"[spray_notifications] New best result: expanded envelope with {envelope_count} residents")
                     
-                except Exception as envelope_error:
-                    logger(f"[spray_notifications] Expanded envelope failed: {envelope_error}")
-                
-                if best_result:
-                    all_residents.extend(best_result)
-                    logger(f"[spray_notifications] Added {len(best_result)} residents from subgrid {i+1}")
-                else:
-                    logger(f"[spray_notifications] No residents found for subgrid {i+1} with any approach")
-                
-            except Exception as query_error:
-                logger(f"[spray_notifications] All query approaches failed on subgrid {i+1}: {query_error}")
-                continue
+                    individual_query = retry_query(do_individual_query, max_retries=2, logger=logger)
+                    
+                    if individual_query:
+                        for resident in individual_query.features:
+                            resident_id = resident.attributes.get('OBJECTID')
+                            if resident_id not in processed_resident_ids:
+                                all_residents.append(resident)
+                                processed_resident_ids.add(resident_id)
+                        
+                        logger(f"[spray_notifications] Subgrid {i+1} query found {len(individual_query.features)} residents")
+                    else:
+                        logger(f"[spray_notifications] All retries failed for subgrid {i+1}")
+                    
+                except Exception as individual_error:
+                    logger(f"[spray_notifications] Individual query failed for subgrid {i+1}: {individual_error}")
+                    continue
         
         logger(f"[spray_notifications] Found {len(all_residents)} total resident records")
         
