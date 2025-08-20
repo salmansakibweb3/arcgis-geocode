@@ -12,6 +12,7 @@ from prepare_data import prepare_data
 from update_layer import process_update_layer
 from generate_spray_notifications import generate_spray_notifications
 from disease_maps import analyze_disease_positives
+from shapefile_export import create_points_shapefile, create_polygons_shapefile
 
 app = Flask(__name__)
 CORS(app)
@@ -471,6 +472,82 @@ def analyze_disease_positives_endpoint():
         import traceback
         traceback.print_exc()
         return jsonify({"status": "failure", "message": f"Analysis failed: {str(e)}"}), 500
+
+@app.route("/export-points-shapefile", methods=["POST"])
+def export_points_shapefile():
+    """Export positive samples as points shapefile"""
+    try:
+        data = request.get_json()
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        samples = data.get('samples', [])
+        
+        if not samples:
+            return jsonify({"status": "failure", "message": "No samples provided for export"}), 400
+            
+        print(f"[shapefile_export] Exporting {len(samples)} positive samples as points shapefile")
+        
+        # Create shapefile
+        zip_buffer = create_points_shapefile(gis, samples, {
+            'start_date': start_date,
+            'end_date': end_date
+        })
+        
+        # Generate filename
+        start_formatted = start_date.replace('-', '') if start_date else 'unknown'
+        end_formatted = end_date.replace('-', '') if end_date else 'unknown'
+        filename = f"PositiveSamples_{start_formatted}_{end_formatted}.zip"
+        
+        return send_file(
+            zip_buffer,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/zip'
+        )
+        
+    except Exception as e:
+        print(f"[shapefile_export] Points export error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "failure", "message": f"Points shapefile export failed: {str(e)}"}), 500
+
+@app.route("/export-polygons-shapefile", methods=["POST"])
+def export_polygons_shapefile():
+    """Export associated subgrids as polygons shapefile"""
+    try:
+        data = request.get_json()
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        samples = data.get('samples', [])
+        
+        if not samples:
+            return jsonify({"status": "failure", "message": "No samples provided for export"}), 400
+            
+        print(f"[shapefile_export] Exporting associated subgrids as polygons shapefile")
+        
+        # Create shapefile
+        zip_buffer = create_polygons_shapefile(gis, samples, {
+            'start_date': start_date,
+            'end_date': end_date
+        })
+        
+        # Generate filename
+        start_formatted = start_date.replace('-', '') if start_date else 'unknown'
+        end_formatted = end_date.replace('-', '') if end_date else 'unknown'
+        filename = f"AssociatedSubgrids_{start_formatted}_{end_formatted}.zip"
+        
+        return send_file(
+            zip_buffer,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/zip'
+        )
+        
+    except Exception as e:
+        print(f"[shapefile_export] Polygons export error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"status": "failure", "message": f"Polygons shapefile export failed: {str(e)}"}), 500
     
 if __name__ == "__main__":
     app.run(debug=True)

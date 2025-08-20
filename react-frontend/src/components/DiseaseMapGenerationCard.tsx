@@ -108,6 +108,46 @@ export default function DiseaseMapGenerationCard() {
 
     const hasPositiveSamples = result?.status === "success" && result?.positive_samples && result.positive_samples > 0;
 
+    const handleDownloadShapefile = async (type: 'points' | 'polygons') => {
+        if (!result?.samples || result.samples.length === 0) {
+            alert('No positive samples available for export');
+            return;
+        }
+
+        try {
+            setIsAnalyzing(true); // Reuse the loading state
+            
+            const response = await api.post(`/export-${type}-shapefile`, {
+                start_date: startDate,
+                end_date: endDate,
+                samples: result.samples
+            }, {
+                responseType: 'blob'
+            });
+
+            // Create download link
+            const blob = new Blob([response.data], { type: 'application/zip' });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            
+            // Generate filename with date range
+            const startFormatted = startDate.replace(/-/g, '');
+            const endFormatted = endDate.replace(/-/g, '');
+            const fileType = type === 'points' ? 'PositiveSamples' : 'AssociatedSubgrids';
+            link.download = `${fileType}_${startFormatted}_${endFormatted}.zip`;
+            
+            link.click();
+            window.URL.revokeObjectURL(url);
+            
+        } catch (error: any) {
+            console.error(`Error downloading ${type} shapefile:`, error);
+            alert(`Failed to download ${type} shapefile. Please try again.`);
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+
     return (
         <div className="bg-white shadow-xl rounded-xl p-6 max-w-4xl mx-auto mt-10 relative">
             {/* Loading Overlay */}
@@ -277,11 +317,24 @@ export default function DiseaseMapGenerationCard() {
                                         
                                         {/* Next Steps */}
                                         <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
-                                            <p className="font-medium text-yellow-800">🎯 Next Steps</p>
-                                            <p className="text-sm text-yellow-700 mt-1">
-                                                Positive samples identified! Ready to proceed with automated map generation using:
-                                                Subgrid layer, Streets layer, Land parcels layer, and TRS zones layer.
+                                            <p className="font-medium text-yellow-800">🎯 Export Shapefiles for ArcGIS Pro</p>
+                                            <p className="text-sm text-yellow-700 mt-1 mb-3">
+                                                Download shapefiles to import directly into ArcGIS Pro for fast layout generation.
                                             </p>
+                                            <div className="flex gap-3">
+                                                <button 
+                                                    onClick={() => handleDownloadShapefile('points')}
+                                                    className="bg-green-600 hover:bg-green-700 text-white text-sm px-4 py-2 rounded transition-colors flex items-center gap-2"
+                                                >
+                                                    📍 Positive Samples Shapefile
+                                                </button>
+                                                <button 
+                                                    onClick={() => handleDownloadShapefile('polygons')}
+                                                    className="bg-purple-600 hover:bg-purple-700 text-white text-sm px-4 py-2 rounded transition-colors flex items-center gap-2"
+                                                >
+                                                    🔲 Associated Subgrids Shapefile
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 )}
